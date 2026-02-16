@@ -50,13 +50,13 @@ spec:
       rules:
         - application: cartography
   liveness:
-    path: /db/neo4j/availability
+    path: /
     port: 7474
     initialDelay: 60
     periodSeconds: 10
     failureThreshold: 5
   readiness:
-    path: /db/neo4j/availability
+    path: /
     port: 7474
     initialDelay: 60
     periodSeconds: 10
