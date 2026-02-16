@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  image: "{{IMAGE}}"
+  image: "{{image}}"
   backoffLimit: 1
   activeDeadlineSeconds: 7200
   failedJobsHistoryLimit: 3

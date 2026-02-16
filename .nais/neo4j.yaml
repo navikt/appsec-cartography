@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  image: "{{IMAGE}}"
+  image: "{{image}}"
   port: 7474
   replicas:
     min: 1
