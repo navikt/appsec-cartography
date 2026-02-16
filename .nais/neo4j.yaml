@@ -33,6 +33,14 @@ spec:
   filesFrom:
     - persistentVolumeClaim: neo4j-data
       mountPath: /data
+    - emptyDir: {}
+      mountPath: /var/lib/neo4j/conf
+    - emptyDir: {}
+      mountPath: /var/lib/neo4j/run
+    - emptyDir: {}
+      mountPath: /logs
+    - emptyDir: {}
+      mountPath: /var/lib/neo4j/metrics
   accessPolicy:
     inbound:
       rules:
