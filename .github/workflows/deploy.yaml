@@ -13,11 +13,16 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           persist-credentials: false
-
-      - uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
+      - uses: nais/docker-build-push@3b44f7c419b9511ad7c8b72174b3cc078d570bed
+        id: docker-push-neo4j
+        with:
+          team: appsec
+          dockerfile: Dockerfile.neo4j
+      - uses: nais/deploy/actions/deploy@12442ef9824a1f795d01e821f14962f7029c3723 # ratchet:nais/deploy/actions/deploy@v1
         env:
           CLUSTER: prod-gcp
           RESOURCE: .nais/neo4j.yaml
+          IMAGE: ${{ steps.docker-push-neo4j.outputs.image }}
 
       - uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
         env:

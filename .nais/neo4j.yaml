@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  image: neo4j:5.26-community
+  image: "{{IMAGE}}"
   port: 7474
   replicas:
     min: 1
