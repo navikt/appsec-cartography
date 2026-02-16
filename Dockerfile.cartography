@@ -1,0 +1,1 @@
+FROM ghcr.io/cartography-cncf/cartography:0.127

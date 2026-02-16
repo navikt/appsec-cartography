@@ -23,8 +23,13 @@ jobs:
           CLUSTER: prod-gcp
           RESOURCE: .nais/neo4j.yaml
           IMAGE: ${{ steps.docker-push-neo4j.outputs.image }}
-
+      - uses: nais/docker-build-push@3b44f7c419b9511ad7c8b72174b3cc078d570bed
+        id: docker-push-cartography
+        with:
+          team: appsec
+          dockerfile: Dockerfile.cartography
       - uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
         env:
           CLUSTER: prod-gcp
           RESOURCE: .nais/cartography.yaml
+          IMAGE: ${{ steps.docker-push-cartography.outputs.image }}
