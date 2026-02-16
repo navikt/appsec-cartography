@@ -1,1 +1,1 @@
-FROM dhi.io/neo4j:5
+FROM neo4j:5.26-community 
