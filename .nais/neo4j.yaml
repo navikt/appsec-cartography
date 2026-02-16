@@ -26,6 +26,8 @@ spec:
       value: "false"
     - name: NEO4J_server_default__listen__address
       value: "0.0.0.0"
+    - name: NEO4J_server_config_strict__validation_enabled
+      value: "false"
   filesFrom:
     - persistentVolumeClaim: neo4j-data
       mountPath: /data
