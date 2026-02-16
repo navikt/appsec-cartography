@@ -1,0 +1,11 @@
+apiVersion: nais.io/v1alpha1
+kind: PersistentVolumeClaim
+metadata:
+  name: neo4j-data
+  namespace: appsec
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard-rwo
+  resources:
+    requests:
+      storage: 20Gi

@@ -1,0 +1,46 @@
+apiVersion: nais.io/v1alpha1
+kind: Application
+metadata:
+  name: neo4j
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  image: neo4j:5.26-community
+  port: 7474
+  replicas:
+    min: 1
+    max: 1
+  strategy:
+    type: Recreate
+  envFrom:
+    - secret: cartography
+  env:
+    - name: NEO4J_server_memory_heap_initial__size
+      value: "1G"
+    - name: NEO4J_server_memory_heap_max__size
+      value: "2G"
+    - name: NEO4J_server_memory_pagecache__size
+      value: "1G"
+  filesFrom:
+    - persistentVolumeClaim: neo4j-data
+      mountPath: /data
+  accessPolicy:
+    inbound:
+      rules:
+        - application: cartography
+  liveness:
+    path: /
+    port: 7474
+    initialDelay: 30
+    periodSeconds: 10
+  readiness:
+    path: /
+    port: 7474
+    initialDelay: 30
+  resources:
+    requests:
+      memory: 4Gi
+      cpu: 200m
+    limits:
+      memory: 6Gi

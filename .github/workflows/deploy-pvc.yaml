@@ -1,0 +1,19 @@
+name: Bootstrap Neo4j storage
+on:
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
+        env:
+          CLUSTER: prod-gcp
+          RESOURCE: .nais/neo4j-pvc.yaml

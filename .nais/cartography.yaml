@@ -1,0 +1,39 @@
+apiVersion: nais.io/v1alpha1
+kind: Naisjob
+metadata:
+  name: cartography
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  image: ghcr.io/cartography-cncf/cartography:0.127
+  schedule: "0 2 * * *"
+  backoffLimit: 1
+  activeDeadlineSeconds: 7200
+  failedJobsHistoryLimit: 3
+  successfulJobsHistoryLimit: 1
+  command:
+    - cartography
+    - --neo4j-uri
+    - bolt://neo4j.appsec.svc.cluster.local:7687
+    - --neo4j-user
+    - neo4j
+    - --neo4j-password-env-var
+    - NEO4J_PASSWORD
+    - --selected-modules
+    - github
+  envFrom:
+    - secret: cartography
+  accessPolicy:
+    outbound:
+      rules:
+        - application: neo4j
+      external:
+        - host: github.com
+        - host: api.github.com
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1Gi
