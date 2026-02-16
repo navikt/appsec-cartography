@@ -22,14 +22,10 @@ spec:
       value: "2G"
     - name: NEO4J_server_memory_pagecache__size
       value: "1G"
-    - name: NEO4J_CONF
-      value: /tmp/conf
-    - name: NEO4J_LOGS
-      value: /tmp/logs
-    - name: NEO4J_RUN
-      value: /tmp/run
-    - name: NEO4J_PIDFILE
-      value: /tmp/neo4j.pid
+    - name: NEO4J_dbms_usage__report_enabled
+      value: "false"
+    - name: NEO4J_server_default__listen__address
+      value: "0.0.0.0"
   filesFrom:
     - persistentVolumeClaim: neo4j-data
       mountPath: /data
@@ -46,14 +42,17 @@ spec:
       rules:
         - application: cartography
   liveness:
-    path: /
+    path: /db/neo4j/availability
     port: 7474
-    initialDelay: 30
+    initialDelay: 60
     periodSeconds: 10
+    failureThreshold: 5
   readiness:
-    path: /
+    path: /db/neo4j/availability
     port: 7474
-    initialDelay: 30
+    initialDelay: 60
+    periodSeconds: 10
+    failureThreshold: 5 
   resources:
     requests:
       memory: 4Gi
