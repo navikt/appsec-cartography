@@ -21,6 +21,8 @@ spec:
     - NEO4J_PASSWORD
     - --selected-modules
     - github
+    - --github-config-env-var
+    - GITHUB_CONFIG
   envFrom:
     - secret: cartography
   accessPolicy:
@@ -35,4 +37,4 @@ spec:
       memory: 512Mi
       cpu: 250m
     limits:
-      memory: 1Gi
+      memory: 2048Mi
