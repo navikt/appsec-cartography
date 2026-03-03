@@ -1,1 +1,1 @@
-FROM ghcr.io/cartography-cncf/cartography:0.127
+FROM ghcr.io/cartography-cncf/cartography:0.131.0
