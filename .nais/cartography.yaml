@@ -8,8 +8,6 @@ metadata:
 spec:
   image: "{{image}}"
   backoffLimit: 1
-  ttl: 1h
-  ttlSecondsAfterFinished:  3600
   command:
     - cartography
     - --neo4j-uri
