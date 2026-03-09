@@ -14,7 +14,7 @@ spec:
   command:
     - cartography
     - --neo4j-uri
-    - bolt://neo4j.appsec.svc.cluster.local:7687
+    - bolt://neo4j.appsec.svc.cluster.local
     - --neo4j-user
     - neo4j
     - --neo4j-password-env-var
