@@ -1,1 +1,1 @@
-FROM neo4j:5.15-community 
+FROM neo4j:5.26-community 
