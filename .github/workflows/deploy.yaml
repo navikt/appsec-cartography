@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy Neo4j
 on:
   workflow_dispatch:
 
@@ -24,13 +24,3 @@ jobs:
           CLUSTER: prod-gcp
           RESOURCE: .nais/neo4j.yaml,.nais/neo4j-bolt.yaml
           IMAGE: ${{ steps.docker-push-neo4j.outputs.image }}
-      - uses: nais/docker-build-push@ae613eff6f44f0323476eda1c3994a7c518761c3
-        id: docker-push-cartography
-        with:
-          team: appsec
-          dockerfile: Dockerfile.cartography
-      - uses: nais/deploy/actions/deploy@fa754451577294aae42872a69b888b3470478ec1 # ratchet:nais/deploy/actions/deploy@v2
-        env:
-          CLUSTER: prod-gcp
-          RESOURCE: .nais/cartography.yaml
-          IMAGE: ${{ steps.docker-push-cartography.outputs.image }}
