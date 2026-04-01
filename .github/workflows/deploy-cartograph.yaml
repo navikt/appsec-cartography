@@ -1,6 +1,11 @@
 name: Deploy cartography
 on:
   workflow_dispatch:
+   inputs:
+     image:
+       type: string
+       required: true
+       description: 'Image to deploy'
 
 jobs:
   deploy:
@@ -17,3 +22,4 @@ jobs:
         env:
           CLUSTER: prod-gcp
           RESOURCE: .nais/cartography.yaml
+          IMAGE: ${{ inputs.image }}
