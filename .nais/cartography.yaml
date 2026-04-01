@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  image: "europe-north1-docker.pkg.dev/nais-management-233d/appsec/cartography:2026.03.31-12.10-f348d31"
+  image: "${{image}}"
   backoffLimit: 1
   command:
     - cartography
