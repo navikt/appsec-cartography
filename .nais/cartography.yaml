@@ -20,6 +20,7 @@ spec:
     - github
     - --github-config-env-var
     - GITHUB_CONFIG
+    - --github-skip-archived-repo-manifests
   envFrom:
     - secret: cartography
   accessPolicy:
@@ -34,4 +35,4 @@ spec:
       memory: 512Mi
       cpu: 250m
     limits:
-      memory: 2048Mi
+      memory: 3072Mi
