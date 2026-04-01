@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  image: "${{image}}"
+  image: "{{image}}"
   backoffLimit: 1
   command:
     - cartography
