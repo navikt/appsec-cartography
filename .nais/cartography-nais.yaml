@@ -1,0 +1,39 @@
+apiVersion: nais.io/v1
+kind: Naisjob
+metadata:
+  name: cartography-nais
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  image: "{{image}}"
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  command:
+    - cartography
+    - --neo4j-uri
+    - bolt://neo4j-bolt.appsec.svc.cluster.local
+    - --neo4j-user
+    - neo4j
+    - --neo4j-password-env-var
+    - NEO4J_PASSWORD
+    - --selected-modules
+    - nais
+    - --nais-api-key-env-var
+    - NAIS_API_KEY
+    - --nais-base-url
+    - https://console.nav.cloud.nais.io/query
+  envFrom:
+    - secret: cartography-nais
+  accessPolicy:
+    outbound:
+      rules:
+        - application: neo4j
+      external:
+        - host: console.nav.cloud.nais.io
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1024Mi
