@@ -49,6 +49,7 @@ spec:
     inbound:
       rules:
         - application: cartography
+        - application: cartography-nais
   liveness:
     path: /
     port: 7474
