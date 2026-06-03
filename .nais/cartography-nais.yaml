@@ -19,8 +19,8 @@ spec:
     - NEO4J_PASSWORD
     - --selected-modules
     - nais
-    - --nais-api-key-env-var
-    - NAIS_API_KEY
+    - --nais-token-path
+    - /var/run/secrets/nais.io/serviceaccount/token
     - --nais-base-url
     - https://console.nav.cloud.nais.io/query
   envFrom:
