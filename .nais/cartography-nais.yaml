@@ -22,7 +22,7 @@ spec:
     - --nais-token-path
     - /var/run/secrets/nais.io/serviceaccount/token
     - --nais-base-url
-    - https://console.nav.cloud.nais.io/query
+    - https://console.nav.cloud.nais.io/graphql
   envFrom:
     - secret: cartography-nais
   accessPolicy:
