@@ -20,8 +20,12 @@ spec:
     - NEO4J_PASSWORD
     - --selected-modules
     - kubernetes
+    - --k8s-kubeconfig
+    - /var/run/configmaps/cartography-k8s-kubeconfig/kubeconfig
   envFrom:
     - secret: cartography-nais
+  filesFrom:
+    - configmap: cartography-k8s-kubeconfig
   accessPolicy:
     outbound:
       rules:
