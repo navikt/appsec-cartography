@@ -27,3 +27,4 @@ jobs:
           CLUSTER: ${{ matrix.cluster }}
           RESOURCE: .nais/cartography-k8s.yaml
           IMAGE: ${{ inputs.image }}
+          VAR: cluster=${{ matrix.cluster }}
