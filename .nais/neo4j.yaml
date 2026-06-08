@@ -51,6 +51,7 @@ spec:
         - application: cartography
         - application: cartography-nais
         - application: cartography-k8s
+        - application: tpt-graph
   liveness:
     path: /
     port: 7474
