@@ -25,7 +25,7 @@ spec:
     - --k8s-kubeconfig
     - /var/run/configmaps/cartography-k8s-kubeconfig/kubeconfig
   envFrom:
-    - secret: cartography-nais
+    - secret: neo4j
   filesFrom:
     - configmap: cartography-k8s-kubeconfig
   accessPolicy:

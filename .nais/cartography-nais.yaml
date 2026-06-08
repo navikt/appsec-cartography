@@ -26,7 +26,7 @@ spec:
     - --nais-base-url
     - https://console.nav.cloud.nais.io/graphql
   envFrom:
-    - secret: cartography-nais
+    - secret: neo4j
   accessPolicy:
     outbound:
       rules:
