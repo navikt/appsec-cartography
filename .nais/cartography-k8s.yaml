@@ -8,8 +8,10 @@ metadata:
     apiserver-access: enabled
 spec:
   image: "{{image}}"
-  backoffLimit: 1
-  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
   command:
     - cartography
     - --neo4j-uri
@@ -36,3 +38,28 @@ spec:
       cpu: 250m
     limits:
       memory: 2048Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartography-k8s-kubeconfig
+  namespace: appsec
+data:
+  kubeconfig: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: {{cluster}}
+        cluster:
+          server: https://kubernetes.default.svc
+          certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    contexts:
+      - name: {{cluster}}
+        context:
+          cluster: {{cluster}}
+          user: cartography-k8s
+    current-context: {{cluster}}
+    users:
+      - name: cartography-k8s
+        user:
+          tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token

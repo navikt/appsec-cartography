@@ -7,8 +7,10 @@ metadata:
     team: appsec
 spec:
   image: "{{image}}"
-  backoffLimit: 1
-  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
   command:
     - cartography
     - --neo4j-uri
