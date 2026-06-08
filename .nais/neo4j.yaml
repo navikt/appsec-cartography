@@ -50,6 +50,7 @@ spec:
       rules:
         - application: cartography
         - application: cartography-nais
+        - application: cartography-k8s
   liveness:
     path: /
     port: 7474
