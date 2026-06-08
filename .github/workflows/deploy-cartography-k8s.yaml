@@ -15,6 +15,7 @@ jobs:
       actions: read
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         cluster: [dev-fss, dev-gcp, prod-fss, prod-gcp]
     steps:
