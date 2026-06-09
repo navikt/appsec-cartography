@@ -7,7 +7,7 @@ metadata:
     team: appsec
     apiserver-access: enabled
 spec:
-  schedule: "0 3 * * *"
+  schedule: "{{schedule}}"
   concurrencyPolicy: Forbid
   image: "{{image}}"
   backoffLimit: 0

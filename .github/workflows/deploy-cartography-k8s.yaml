@@ -17,7 +17,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cluster: [dev-fss, dev-gcp, prod-fss, prod-gcp]
+        include:
+          - cluster: dev-fss
+            schedule: "0 1 * * *"
+          - cluster: dev-gcp
+            schedule: "0 2 * * *"
+          - cluster: prod-fss
+            schedule: "0 3 * * *"
+          - cluster: prod-gcp
+            schedule: "0 4 * * *"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -27,4 +35,4 @@ jobs:
           CLUSTER: ${{ matrix.cluster }}
           RESOURCE: .nais/cartography-k8s.yaml
           IMAGE: ${{ inputs.image }}
-          VAR: cluster=${{ matrix.cluster }}
+          VAR: cluster=${{ matrix.cluster }},schedule=${{ matrix.schedule }}
