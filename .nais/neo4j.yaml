@@ -48,7 +48,7 @@ spec:
   accessPolicy:
     inbound:
       rules:
-        - application: cartography
+        - application: cartography-github
         - application: cartography-nais
         - application: cartography-k8s
         - application: tpt-graph
