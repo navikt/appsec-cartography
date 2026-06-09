@@ -26,6 +26,9 @@ spec:
     - /var/run/configmaps/cartography-k8s-kubeconfig/kubeconfig
   envFrom:
     - secret: neo4j
+  env:
+    - name: OTEL_LOGS_EXPORTER
+      value: otlp
   filesFrom:
     - configmap: cartography-k8s-kubeconfig
   accessPolicy:
@@ -38,6 +41,10 @@ spec:
       cpu: 250m
     limits:
       memory: 2048Mi
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: python
 ---
 apiVersion: v1
 kind: ConfigMap

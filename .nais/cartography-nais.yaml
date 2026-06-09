@@ -27,6 +27,9 @@ spec:
     - https://console.nav.cloud.nais.io/graphql
   envFrom:
     - secret: neo4j
+  env:
+    - name: OTEL_LOGS_EXPORTER
+      value: otlp
   accessPolicy:
     outbound:
       rules:
@@ -39,3 +42,7 @@ spec:
       cpu: 250m
     limits:
       memory: 1024Mi
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: python

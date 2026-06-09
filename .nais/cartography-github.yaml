@@ -26,6 +26,9 @@ spec:
     - --github-skip-archived-repo-manifests
   envFrom:
     - secret: cartography
+  env:
+    - name: OTEL_LOGS_EXPORTER
+      value: otlp
   accessPolicy:
     outbound:
       rules:
@@ -33,6 +36,10 @@ spec:
       external:
         - host: github.com
         - host: api.github.com
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: python
   resources:
     requests:
       memory: 512Mi
