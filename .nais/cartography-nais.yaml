@@ -10,7 +10,6 @@ spec:
   concurrencyPolicy: Forbid
   image: "{{image}}"
   backoffLimit: 0
-  ttlSecondsAfterFinished: 300
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
   command:
@@ -32,6 +31,8 @@ spec:
   env:
     - name: OTEL_LOGS_EXPORTER
       value: otlp
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: http/protobuf
   accessPolicy:
     outbound:
       rules:
