@@ -23,7 +23,7 @@ spec:
     - --neo4j-password-env-var
     - NEO4J_PASSWORD
     - --selected-modules
-    - kubernetes
+    - create-indexes,kubernetes
     - --k8s-kubeconfig
     - /var/run/configmaps/cartography-k8s-kubeconfig/kubeconfig
   envFrom:
