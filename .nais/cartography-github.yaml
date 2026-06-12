@@ -22,7 +22,7 @@ spec:
     - --neo4j-password-env-var
     - NEO4J_PASSWORD
     - --selected-modules
-    - github
+    - create-indexes,github
     - --github-config-env-var
     - GITHUB_CONFIG
     - --github-skip-archived-repo-manifests
