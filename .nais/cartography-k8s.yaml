@@ -17,7 +17,7 @@ spec:
   command:
     - cartography
     - --neo4j-uri
-    - bolt://neo4j-bolt.appsec.${{hostname}}
+    - bolt://neo4j-bolt.appsec.{{hostname}}
     - --neo4j-user
     - neo4j
     - --neo4j-password-env-var
