@@ -36,11 +36,7 @@ spec:
   accessPolicy:
     outbound:
       rules:
-        {{ if eq cluster "prod-gcp" }}
-        - application: neo4j
-        {{ else }}
-        - application: bolt-proxy-outbound
-        {{ end }}
+        - application: {{neo4jApp}}
   resources:
     requests:
       memory: 512Mi
