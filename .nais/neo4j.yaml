@@ -52,6 +52,7 @@ spec:
         - application: cartography-nais
         - application: cartography-k8s
         - application: tpt-graph
+        - application: bolt-proxy-inbound
   liveness:
     path: /
     port: 7474
