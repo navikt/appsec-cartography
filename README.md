@@ -4,7 +4,7 @@ Repo that hosts and deploys dockerfiles related to our fork of [Cartography](htt
 
 
 #### Kubernetes
-Cartography-k8s requires a custom clusterrole + binding applied by platform, as documented [here](.nais/cartograph-clusterrole.yaml). K8s jobs are deployed in a staggered fashion to avoid race conditions when updating the database.
+Cartography-k8s requires a custom clusterrole + binding applied by platform, as documented [here](.nais/cartography-clusterrole.yaml). K8s jobs are deployed in a staggered fashion to avoid race conditions when updating the database.
 
 ## Contact
 
