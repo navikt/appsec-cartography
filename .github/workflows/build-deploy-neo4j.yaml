@@ -19,7 +19,7 @@ jobs:
           team: appsec
           dockerfile: Dockerfile.neo4j
           image_suffix: neo4j
-      - uses: nais/deploy/actions/deploy@fceb26518aacf0ca378decec413782d1c5926e1a # ratchet:nais/deploy/actions/deploy@v2
+      - uses: nais/deploy/actions/deploy@5fdd91aaf69bb0d6dd5e5118cdacb639f487b93b # ratchet:nais/deploy/actions/deploy@v2
         env:
           CLUSTER: prod-gcp
           RESOURCE: .nais/neo4j.yaml
