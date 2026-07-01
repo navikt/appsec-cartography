@@ -26,6 +26,7 @@ spec:
     - --github-config-env-var
     - GITHUB_CONFIG
     - --github-skip-archived-repo-manifests
+    - --github-parallel-workers 5
   envFrom:
     - secret: cartography
   env:
