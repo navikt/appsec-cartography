@@ -27,9 +27,9 @@ spec:
     - GITHUB_CONFIG
     - --github-skip-archived-repo-manifests
     - --github-parallel-workers
-    - "5"
+    - "10"
     - --github-requested-syncs
-    - "users,repos,personal_access_tokens,dependabot_alerts,teams,actions,commits,packages,supply_chain"
+    - "repos,dep_manifests"
   envFrom:
     - secret: cartography
   env:
