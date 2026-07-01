@@ -1,7 +1,7 @@
 apiVersion: nais.io/v1
 kind: Naisjob
 metadata:
-  name: cartography-github
+  name: cartography-github-manifests
   namespace: appsec
   labels:
     team: appsec
