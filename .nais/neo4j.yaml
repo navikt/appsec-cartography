@@ -49,6 +49,7 @@ spec:
     inbound:
       rules:
         - application: cartography-github
+        - application: cartography-github-manifests
         - application: cartography-nais
         - application: cartography-k8s
         - application: tpt-graph

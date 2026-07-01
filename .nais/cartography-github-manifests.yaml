@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  schedule: "0 1 * * 1-5"
+  schedule: "0 1 * * 6"
   concurrencyPolicy: Forbid
   image: "{{image}}"
   backoffLimit: 0
