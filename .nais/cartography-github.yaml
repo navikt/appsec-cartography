@@ -26,8 +26,12 @@ spec:
     - --github-config-env-var
     - GITHUB_CONFIG
     - --github-skip-archived-repo-manifests
+    - --github-skip-archived-actions-sync
+    - --github-skip-archived-commits-sync
+    - --github-skip-stale-commits-sync
+    - --github-incremental-actions-workflow-sync
     - --github-parallel-workers
-    - "5"
+    - "4"
     - --github-requested-syncs
     - "users,repos,personal_access_tokens,dependabot_alerts,teams,actions,commits,packages,supply_chain"
   envFrom:
