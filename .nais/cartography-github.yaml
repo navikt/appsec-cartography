@@ -30,10 +30,9 @@ spec:
     - --github-skip-archived-commits-sync
     - --github-skip-stale-commits-sync
     - --github-incremental-actions-workflow-sync
+    - --github-incremental-dep-manifest-sync
     - --github-parallel-workers
     - "4"
-    - --github-requested-syncs
-    - "users,repos,personal_access_tokens,dependabot_alerts,teams,actions,commits,packages,supply_chain"
   envFrom:
     - secret: cartography
   env:
