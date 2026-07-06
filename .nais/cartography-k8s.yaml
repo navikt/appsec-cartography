@@ -11,7 +11,6 @@ spec:
   concurrencyPolicy: Forbid
   image: "{{image}}"
   backoffLimit: 0
-  ttlSecondsAfterFinished: 300
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
   command:
