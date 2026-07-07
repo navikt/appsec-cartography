@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  #schedule: "0 1 * * 1-5"
+  schedule: "5 23 * * *"
   concurrencyPolicy: Forbid
   image: "{{image}}"
   backoffLimit: 0
@@ -24,12 +24,7 @@ spec:
     - create-indexes,github
     - --github-config-env-var
     - GITHUB_CONFIG
-    - --github-skip-archived-repo-manifests
-    - --github-skip-archived-actions-sync
-    - --github-skip-archived-commits-sync
-    - --github-skip-stale-commits-sync
-    - --github-incremental-actions-workflow-sync
-    - --github-incremental-dep-manifest-sync
+    - --github-incremental-sync
     - --github-parallel-workers
     - "4"
   envFrom:
