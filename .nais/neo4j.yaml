@@ -54,6 +54,7 @@ spec:
         - application: cartography-nais
         - application: cartography-k8s
         - application: tpt-graph
+        - application: tpt-data-collector
         - application: bolt-proxy-inbound
   liveness:
     path: /
