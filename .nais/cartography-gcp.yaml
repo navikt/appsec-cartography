@@ -1,0 +1,43 @@
+apiVersion: nais.io/v1
+kind: Naisjob
+metadata:
+  name: cartography-gcp
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  schedule: "0 3 * * *"
+  concurrencyPolicy: Forbid
+  image: "{{image}}"
+  backoffLimit: 0
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  command:
+    - cartography
+    - --neo4j-uri
+    - bolt://neo4j-bolt.appsec.svc.cluster.local
+    - --neo4j-user
+    - neo4j
+    - --neo4j-password-env-var
+    - NEO4J_PASSWORD
+    - --selected-modules
+    - create-indexes,gcp,analysis
+  envFrom:
+    - secret: neo4j
+  env:
+    - name: OTEL_LOGS_EXPORTER
+      value: otlp
+  accessPolicy:
+    outbound:
+      rules:
+        - application: neo4j
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1024Mi
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: python
