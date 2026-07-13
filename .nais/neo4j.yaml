@@ -53,6 +53,7 @@ spec:
         - application: cartography-github
         - application: cartography-nais
         - application: cartography-k8s
+        - application: cartography-gcp
         - application: tpt-graph
         - application: tpt-data-collector
         - application: bolt-proxy-inbound
