@@ -9,7 +9,7 @@ spec:
   schedule: "5 23 * * *"
   concurrencyPolicy: Forbid
   image: "{{image}}"
-  backoffLimit: 0
+  backoffLimit: 1
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
   command:
