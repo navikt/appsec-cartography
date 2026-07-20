@@ -19,19 +19,19 @@ jobs:
       matrix:
         include:
           - cluster: dev-fss
-            schedule: "0 1 * * *"
+            schedule: "0 1,17 * * *"
             neo4jApp: bolt-proxy-outbound
             hostname: "svc.nais.local"
           - cluster: dev-gcp
-            schedule: "0 2 * * *"
+            schedule: "0 2,18 * * *"
             neo4jApp: bolt-proxy-outbound
             hostname: "svc.cluster.local"
           - cluster: prod-fss
-            schedule: "0 3 * * *"
+            schedule: "0 3,19 * * *"
             neo4jApp: bolt-proxy-outbound
             hostname: "svc.nais.local"
           - cluster: prod-gcp
-            schedule: "0 4 * * *"
+            schedule: "0 4,20 * * *"
             neo4jApp: neo4j
             hostname: "svc.cluster.local"
     steps:

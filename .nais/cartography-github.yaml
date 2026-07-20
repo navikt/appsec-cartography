@@ -6,10 +6,10 @@ metadata:
   labels:
     team: appsec
 spec:
-  schedule: "5 23 * * *"
+  schedule: "5 06,18 * * *"
   concurrencyPolicy: Forbid
   image: "{{image}}"
-  backoffLimit: 1
+  backoffLimit: 2
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
   command:
