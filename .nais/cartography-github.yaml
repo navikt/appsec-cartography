@@ -11,7 +11,7 @@ spec:
   image: "{{image}}"
   backoffLimit: 2
   successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 1
+  ttlSecondsAfterFinished: 1800
   command:
     - cartography
     - --neo4j-uri
