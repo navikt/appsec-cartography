@@ -1,0 +1,4 @@
+cluster: dev-gcp
+schedule: "0 2,18 * * *"
+neo4jApp: bolt-proxy-outbound
+hostname: svc.cluster.local

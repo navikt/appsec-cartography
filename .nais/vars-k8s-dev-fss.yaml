@@ -1,0 +1,4 @@
+cluster: dev-fss
+schedule: "0 1,17 * * *"
+neo4jApp: bolt-proxy-outbound
+hostname: svc.nais.local

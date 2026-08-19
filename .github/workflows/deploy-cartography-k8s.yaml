@@ -17,23 +17,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - cluster: dev-fss
-            schedule: "0 1,17 * * *"
-            neo4jApp: bolt-proxy-outbound
-            hostname: "svc.nais.local"
-          - cluster: dev-gcp
-            schedule: "0 2,18 * * *"
-            neo4jApp: bolt-proxy-outbound
-            hostname: "svc.cluster.local"
-          - cluster: prod-fss
-            schedule: "0 3,19 * * *"
-            neo4jApp: bolt-proxy-outbound
-            hostname: "svc.nais.local"
-          - cluster: prod-gcp
-            schedule: "0 4,20 * * *"
-            neo4jApp: neo4j
-            hostname: "svc.cluster.local"
+        cluster:
+          - dev-fss
+          - dev-gcp
+          - prod-fss
+          - prod-gcp
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,4 +31,4 @@ jobs:
           CLUSTER: ${{ matrix.cluster }}
           RESOURCE: .nais/cartography-k8s.yaml
           IMAGE: ${{ inputs.image }}
-          VAR: cluster=${{ matrix.cluster }},schedule=${{ matrix.schedule }},neo4jApp=${{ matrix.neo4jApp }},hostname=${{ matrix.hostname }}
+          VARS: .nais/vars-k8s-${{ matrix.cluster }}.yaml
