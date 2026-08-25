@@ -17,11 +17,11 @@ spec:
     - secret: cartography
   env:
     - name: NEO4J_server_memory_heap_initial__size
-      value: "3G"
+      value: "4G"
     - name: NEO4J_server_memory_heap_max__size
-      value: "3G"
+      value: "4G"
     - name: NEO4J_server_memory_pagecache__size
-      value: "512m"
+      value: "1G"
     - name: NEO4J_dbms_memory_transaction_total_max
       value: "2G"
     - name: NEO4J_dbms_usage__report_enabled
@@ -71,10 +71,10 @@ spec:
     failureThreshold: 5
   resources:
     requests:
-      memory: 3Gi
+      memory: 5Gi
       cpu: 200m
     limits:
-      memory: 5Gi
+      memory: 8Gi
 ---
 apiVersion: v1
 kind: Service
