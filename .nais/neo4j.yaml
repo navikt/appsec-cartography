@@ -57,6 +57,7 @@ spec:
         - application: tpt-graph
         - application: tpt-data-collector
         - application: bolt-proxy-inbound
+        - application: tpt-query-workspace
   liveness:
     path: /
     port: 7474
