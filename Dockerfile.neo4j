@@ -1,1 +1,1 @@
-FROM europe-north1-docker.pkg.dev/cgr-nav/dhiio/neo4j:5.26
+FROM dhi.io/neo4j:5.26
