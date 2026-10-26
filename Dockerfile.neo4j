@@ -1,1 +1,1 @@
-FROM neo4j:5.26-community 
+FROM europe-north1-docker.pkg.dev/cgr-nav/dhiio/neo4j:5.26
