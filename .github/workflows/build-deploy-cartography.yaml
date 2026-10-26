@@ -1,0 +1,45 @@
+name: Build & deploy Cartography
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-deploy-cartography.yaml
+      - .github/workflows/release-cartography-source.yaml
+      - .nais/cartography-*.yaml
+      - .nais/vars-k8s-*.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+concurrency:
+  group: cartography
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: master
+            targets:
+              - {collector: gcp, cluster: prod-gcp}
+              - {collector: k8s, cluster: dev-fss}
+              - {collector: k8s, cluster: dev-gcp}
+              - {collector: k8s, cluster: prod-fss}
+              - {collector: k8s, cluster: prod-gcp}
+          - source: nais-module
+            targets:
+              - {collector: nais, cluster: prod-gcp}
+          - source: github-module
+            targets:
+              - {collector: github, cluster: prod-gcp}
+    uses: ./.github/workflows/release-cartography-source.yaml
+    with:
+      source: ${{ matrix.source }}
+      targets: ${{ toJSON(matrix.targets) }}

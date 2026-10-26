@@ -1,0 +1,77 @@
+name: Release a Cartography source branch
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: Branch in navikt/cartography
+        required: true
+        type: string
+      targets:
+        description: JSON array of collector and cluster pairs
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+jobs:
+  build:
+    name: Build ${{ inputs.source }}
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out Nav source
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: navikt/cartography
+          ref: ${{ inputs.source }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: nais/docker-build-push@0e73849f69ff260ee27597553c0a7848ca4e9795
+        id: build
+        with:
+          team: appsec
+          dockerfile: source/nais.Dockerfile
+          docker_context: source
+          image_suffix: ${{ inputs.source }}
+          cache_from: type=gha,scope=cartography-${{ inputs.source }}
+          cache_to: type=gha,mode=max,scope=cartography-${{ inputs.source }}
+          pull: true
+      - name: Smoke-test the published image
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: docker run --rm "$IMAGE" --help > /dev/null
+      - name: Record release
+        env:
+          SOURCE: ${{ inputs.source }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          printf '### %s\n\nSource commit: %s\n\nImage: %s\n' \
+            "$SOURCE" "$(git -C source rev-parse HEAD)" "$IMAGE" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy ${{ matrix.collector }} to ${{ matrix.cluster }}
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.targets) }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: nais/deploy/actions/deploy@849e900e3cfa7faf7ad1532bb3a3e6499c932199 # ratchet:nais/deploy/actions/deploy@v2
+        env:
+          CLUSTER: ${{ matrix.cluster }}
+          RESOURCE: .nais/cartography-${{ matrix.collector }}.yaml
+          IMAGE: ${{ needs.build.outputs.image }}
+          VARS: ${{ matrix.collector == 'k8s' && format('.nais/vars-k8s-{0}.yaml', matrix.cluster) || '' }}
