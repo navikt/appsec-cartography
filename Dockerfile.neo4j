@@ -1,1 +1,23 @@
+FROM dhi.io/neo4j:5.26-dev AS tools
+
+USER 0:0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --reinstall mawk \
+    && rm -rf /var/lib/apt/lists/*
+
 FROM dhi.io/neo4j:5.26
+
+USER 0:0
+
+COPY --from=tools /usr/bin/mawk /usr/local/bin/awk
+COPY --from=tools /usr/share/doc/mawk/copyright /usr/share/doc/mawk/copyright
+
+RUN chmod -R a+rX /var/lib/neo4j
+
+USER 1069:1069
+
+RUN awk 'BEGIN { print "awk available" }' \
+    && test -x /var/lib/neo4j/bin/neo4j \
+    && test -x /var/lib/neo4j/bin/neo4j-admin \
+    && neo4j-admin --version
