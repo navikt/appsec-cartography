@@ -8,7 +8,7 @@ metadata:
 spec:
   schedule: "0 3 * * *"
   concurrencyPolicy: Forbid
-  image: "{{image}}"
+  image: "${IMAGE}"
   backoffLimit: 2
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1

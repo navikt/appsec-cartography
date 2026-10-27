@@ -15,7 +15,6 @@ on:
 permissions:
   contents: read
   id-token: write
-  actions: read
 
 jobs:
   build:
@@ -69,9 +68,19 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: nais/deploy/actions/deploy@849e900e3cfa7faf7ad1532bb3a3e6499c932199 # ratchet:nais/deploy/actions/deploy@v2
+      - uses: nais/setup@v1
+        with:
+          team: appsec
+      - name: Load Kubernetes variables
+        if: matrix.collector == 'k8s'
+        run: yq -r 'to_entries | .[] | .key + "=" + .value' "$VARS" >> "$GITHUB_ENV"
+        env:
+          VARS: .nais/vars-k8s-${{ matrix.cluster }}.yaml
+      - name: Deploy to Nais
+        run: |
+          IMAGE="${IMAGE:?}" envsubst < "$RESOURCE" > "$RUNNER_TEMP/manifest.yaml"
+          nais apply "$RUNNER_TEMP/manifest.yaml" --environment "$CLUSTER" --wait
         env:
           CLUSTER: ${{ matrix.cluster }}
           RESOURCE: .nais/cartography-${{ matrix.collector }}.yaml
           IMAGE: ${{ needs.build.outputs.image }}
-          VARS: ${{ matrix.collector == 'k8s' && format('.nais/vars-k8s-{0}.yaml', matrix.cluster) || '' }}

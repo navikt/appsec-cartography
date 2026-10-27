@@ -7,13 +7,13 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      actions: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: nais/deploy/actions/deploy@849e900e3cfa7faf7ad1532bb3a3e6499c932199 # ratchet:nais/deploy/actions/deploy@v2
-        env:
-          CLUSTER: prod-gcp
-          RESOURCE: .nais/neo4j-pvc.yaml
+      - uses: nais/setup@v1
+        with:
+          team: appsec
+      - name: Apply storage manifest
+        run: nais apply .nais/neo4j-pvc.yaml --environment prod-gcp

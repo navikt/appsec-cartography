@@ -4,7 +4,7 @@ Repo that hosts and deploys dockerfiles related to our fork of [Cartography](htt
 
 ## Releases
 
-**Build & deploy Cartography** runs daily, on deployment configuration changes on
+**Build & deploy Cartography** runs on deployment configuration changes on
 `main`, or manually from the Actions tab. Its source/target matrix is the only
 release configuration:
 
@@ -20,15 +20,23 @@ SBOM and signing. After a CLI smoke test, it deploys the same image digest to th
 branch's targets. Source commits and image references are recorded in the run
 summary. No cross-repository write credentials or fork workflow dispatches are needed.
 
+Deployments use `nais/setup`, then `envsubst` and `nais apply` in the workflows.
+Templates use `${VARIABLE}` placeholders; Kubernetes values come from the
+existing `.nais/vars-k8s-<cluster>.yaml` files. Combined manifests keep their
+ConfigMap and Service resources. `--wait` checks application readiness; it does
+not wait for scheduled collector jobs to run.
+
 Python dependencies still come from each branch's `uv.lock`: merge dependency
 updates into the relevant source branch to release them. Rebuilding alone does
 not upgrade locked dependencies. Once the Nav modules share a source branch,
 combine their target lists in the matrix to build one shared image.
 
 For an urgent release, run **Build & deploy Cartography** on `main`. To retry a
-partial release, use **Re-run failed jobs**. To roll back, use a collector's existing
-manual deployment workflow with a previous image reference from a run summary.
-Wait for or cancel an active release before rolling back. Deploying updates the
+partial release, use **Re-run failed jobs**. To roll back, run **Deploy existing
+Cartography image** on `main`, select a collector, and provide a previous image
+reference from a run summary. Kubernetes deploys to all four clusters; other
+collectors deploy to prod-gcp. Manual deployments share the release concurrency
+group, so they wait for an active release to finish. Deploying updates the
 scheduled job definition; ingestion happens at the existing schedule.
 
 Neo4j remains independent: run **Build & deploy Neo4j** explicitly when its image
