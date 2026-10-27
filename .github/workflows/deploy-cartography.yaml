@@ -1,0 +1,53 @@
+name: Deploy existing Cartography image
+
+on:
+  workflow_dispatch:
+    inputs:
+      collector:
+        description: Collector to deploy
+        type: choice
+        required: true
+        options: [gcp, k8s, nais, github]
+      image:
+        description: Existing image reference from a release summary
+        type: string
+        required: true
+
+concurrency:
+  group: cartography
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cluster: >-
+          ${{ fromJSON(inputs.collector == 'k8s'
+            && '["dev-fss", "dev-gcp", "prod-fss", "prod-gcp"]'
+            || '["prod-gcp"]') }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: nais/setup@v1
+        with:
+          team: appsec
+      - name: Load Kubernetes variables
+        if: inputs.collector == 'k8s'
+        run: yq -r 'to_entries | .[] | .key + "=" + .value' "$VARS" >> "$GITHUB_ENV"
+        env:
+          VARS: .nais/vars-k8s-${{ matrix.cluster }}.yaml
+      - name: Deploy to Nais
+        run: |
+          IMAGE="${IMAGE:?}" envsubst < "$RESOURCE" > "$RUNNER_TEMP/manifest.yaml"
+          nais apply "$RUNNER_TEMP/manifest.yaml" --environment "$CLUSTER" --wait
+        env:
+          CLUSTER: ${{ matrix.cluster }}
+          RESOURCE: .nais/cartography-${{ inputs.collector }}.yaml
+          IMAGE: ${{ inputs.image }}
