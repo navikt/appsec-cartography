@@ -13,15 +13,13 @@ spec:
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 1
   command:
-    - cartography
+    - cartography-nais
     - --neo4j-uri
     - bolt://neo4j-bolt.appsec.svc.cluster.local
     - --neo4j-user
     - neo4j
     - --neo4j-password-env-var
     - NEO4J_PASSWORD
-    - --selected-modules
-    - nais
     - --nais-token-path
     - /var/run/secrets/nais.io/serviceaccount/token
     - --nais-base-url

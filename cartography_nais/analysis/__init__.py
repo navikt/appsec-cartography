@@ -1,0 +1,1 @@
+"""Nais graph analysis queries."""

@@ -50,12 +50,18 @@ jobs:
           path: source
           fetch-depth: 0
           persist-credentials: false
+      - name: Test Nais collector against selected source
+        if: contains(fromJSON(inputs.targets).*.collector, 'nais')
+        run: |
+          pipx run uv export --quiet --directory source --frozen --no-dev --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
+          pipx run uv run --no-project --python 3.13 --with '.[test]' --with ./source --with-requirements "$RUNNER_TEMP/requirements.txt" pytest -q
       - uses: nais/docker-build-push@0e73849f69ff260ee27597553c0a7848ca4e9795
         id: build
         with:
           team: appsec
           dockerfile: Dockerfile.cartography
-          docker_context: source
+          docker_context: .
+          build_args: WITH_NAIS=${{ contains(fromJSON(inputs.targets).*.collector, 'nais') }}
           image_suffix: ${{ inputs.source }}
           cache_from: type=gha,scope=cartography-${{ inputs.source }}
           cache_to: type=gha,mode=max,scope=cartography-${{ inputs.source }}
@@ -63,7 +69,12 @@ jobs:
       - name: Smoke-test the published image
         env:
           IMAGE: ${{ steps.build.outputs.image }}
-        run: docker run --rm "$IMAGE" --help > /dev/null
+          WITH_NAIS: ${{ contains(fromJSON(inputs.targets).*.collector, 'nais') }}
+        run: |
+          docker run --rm "$IMAGE" --help > /dev/null
+          if [ "$WITH_NAIS" = true ]; then
+            docker run --rm --entrypoint cartography-nais "$IMAGE" --help > /dev/null
+          fi
       - name: Record release
         env:
           REPOSITORY: ${{ inputs.repository }}

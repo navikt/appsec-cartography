@@ -1,0 +1,16 @@
+{
+    "name": "NAIS app GAR image link",
+    "statements": [
+        {
+            "__comment__": "Link NaisApp to GCPArtifactRegistryRepositoryImage via image_name:image_tag == uri. Provides direct NaisApp->GAR linkage without requiring the Kubernetes module to have run. No-op when GAR module has not synced.",
+            "query": "MATCH (a:NaisApp), (ri:GCPArtifactRegistryRepositoryImage) WHERE a.image_name IS NOT NULL AND a.image_tag IS NOT NULL AND ri.uri = a.image_name + ':' + a.image_tag MERGE (a)-[r:RUNS_GAR_IMAGE]->(ri) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale RUNS_GAR_IMAGE relationships",
+            "query": "MATCH (a:NaisApp)-[r:RUNS_GAR_IMAGE]->(ri:GCPArtifactRegistryRepositoryImage) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        }
+    ]
+}

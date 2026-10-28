@@ -1,0 +1,16 @@
+{
+    "name": "NAIS image link analysis",
+    "statements": [
+        {
+            "__comment__": "Link NaisApp to KubernetesContainer via exact image_name:image_tag match",
+            "query": "MATCH (a:NaisApp), (c:KubernetesContainer) WHERE a.image_name IS NOT NULL AND a.image_tag IS NOT NULL AND c.image = a.image_name + ':' + a.image_tag MERGE (a)-[r:RUNS_IMAGE]->(c) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale RUNS_IMAGE relationships",
+            "query": "MATCH (a:NaisApp)-[r:RUNS_IMAGE]->(c:KubernetesContainer) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        }
+    ]
+}

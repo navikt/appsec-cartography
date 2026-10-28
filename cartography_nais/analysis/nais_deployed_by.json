@@ -1,0 +1,16 @@
+{
+    "name": "NAIS deployed-by link analysis",
+    "statements": [
+        {
+            "__comment__": "Link KubernetesContainer to NaisDeployment via image digest. Traverses KubernetesContainer.status_image_sha -> NaisApp.image_digest -> NaisApp -[:ACTIVE_DEPLOYMENT]-> NaisDeployment. This gives a direct, cryptographically-exact provenance edge: for any running container we know exactly which deployment produced it.",
+            "query": "MATCH (c:KubernetesContainer)<-[:RUNS_IMAGE]-(a:NaisApp)-[:ACTIVE_DEPLOYMENT]->(d:NaisDeployment) WHERE c.status_image_sha IS NOT NULL AND a.image_digest IS NOT NULL AND c.status_image_sha = a.image_digest MERGE (c)-[r:DEPLOYED_BY]->(d) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale DEPLOYED_BY relationships",
+            "query": "MATCH (c:KubernetesContainer)-[r:DEPLOYED_BY]->(d:NaisDeployment) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        }
+    ]
+}

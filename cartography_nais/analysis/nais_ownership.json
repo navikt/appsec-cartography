@@ -1,0 +1,27 @@
+{
+    "name": "NAIS ownership analysis",
+    "statements": [
+        {
+            "__comment__": "NaisTeam RESPONSIBLE_FOR KubernetesPod via NaisApp -> KubernetesNamespace",
+            "query": "MATCH (t:NaisTeam)-[:HAS_APP]->(a:NaisApp)-[:RUNS_IN]->(ns:KubernetesNamespace)<-[:CONTAINS]-(pod:KubernetesPod) MERGE (t)-[r:RESPONSIBLE_FOR]->(pod) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale RESPONSIBLE_FOR relationships",
+            "query": "MATCH (t:NaisTeam)-[r:RESPONSIBLE_FOR]->(pod:KubernetesPod) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        },
+        {
+            "__comment__": "KubernetesPod DEPLOYED_FROM GitHubRepository via NaisApp -> RUNS_IMAGE -> KubernetesContainer <- CONTAINS <- KubernetesPod. Requires the pod to actually contain the container running the NaisApp image, eliminating namespace-level fanout where all pods in a team namespace were incorrectly linked to every app repo.",
+            "query": "MATCH (a:NaisApp)-[:RUNS_IMAGE]->(c:KubernetesContainer)<-[:CONTAINS]-(pod:KubernetesPod) MATCH (a)-[:ACTIVE_DEPLOYMENT]->(d:NaisDeployment)-[:DEPLOYED_FROM]->(repo:GitHubRepository) MERGE (pod)-[r:DEPLOYED_FROM]->(repo) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale pod DEPLOYED_FROM GitHubRepository relationships",
+            "query": "MATCH (pod:KubernetesPod)-[r:DEPLOYED_FROM]->(repo:GitHubRepository) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        }
+    ]
+}

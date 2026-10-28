@@ -1,0 +1,16 @@
+{
+    "name": "NAIS image digest link analysis",
+    "statements": [
+        {
+            "__comment__": "Link NaisApp to KubernetesContainer via cryptographic image digest (preferred over tag-based match). Only runs when NaisApp.image_digest is populated.",
+            "query": "MATCH (a:NaisApp), (c:KubernetesContainer) WHERE a.image_digest IS NOT NULL AND c.status_image_sha IS NOT NULL AND c.status_image_sha = a.image_digest MERGE (a)-[r:RUNS_IMAGE]->(c) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale digest-based RUNS_IMAGE relationships",
+            "query": "MATCH (a:NaisApp)-[r:RUNS_IMAGE]->(c:KubernetesContainer) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        }
+    ]
+}

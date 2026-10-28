@@ -1,20 +1,24 @@
 # appsec-cartography
 
 Repo that builds and deploys [Cartography](https://github.com/cartography-cncf/cartography)
-and our [custom collectors](https://github.com/navikt/cartography).
+and our [GitHub collector](https://github.com/navikt/cartography).
 
 ## Releases
 
 [Build & deploy Cartography](.github/workflows/build-deploy-cartography.yaml)
 runs on deployment configuration changes on `main`, or manually from Actions.
-GCP and Kubernetes use the latest stable upstream release; Nais and GitHub use
-our custom fork branches. See the workflow matrix for sources and cluster targets,
+GCP, Kubernetes, and Nais use the latest stable upstream release; GitHub uses
+our custom fork branch. See the workflow matrix for sources and cluster targets,
 [Dockerfile.cartography](Dockerfile.cartography) for the build, and [.nais](.nais)
 for deployment settings.
 
 To roll back, run **Deploy existing Cartography image** on `main` with an image
 reference from a previous run summary. Neo4j is built and deployed separately
 through **Build & deploy Neo4j**.
+
+The local [Nais collector](cartography_nais) runs as `cartography-nais` alongside
+unmodified upstream Cartography. Its tests use a disposable Neo4j container:
+`uv run --no-project --python 3.13 --with '.[test]' pytest`.
 
 ### Kubernetes
 

@@ -1,0 +1,16 @@
+{
+    "name": "NAIS built-from repo link analysis",
+    "statements": [
+        {
+            "__comment__": "Link KubernetesContainer directly to the GitHubRepository it was built from. Traverses the DEPLOYED_BY -> DEPLOYED_FROM path as a shortcut, enabling direct queries like: 'which containers were built from this repo?' without traversing the deployment chain. Only created when both ends of the path exist.",
+            "query": "MATCH (c:KubernetesContainer)-[:DEPLOYED_BY]->(d:NaisDeployment)-[:DEPLOYED_FROM]->(r:GitHubRepository) MERGE (c)-[rel:BUILT_FROM]->(r) ON CREATE SET rel.firstseen = timestamp() SET rel.lastupdated = $UPDATE_TAG",
+            "iterative": false
+        },
+        {
+            "__comment__": "Delete stale BUILT_FROM relationships",
+            "query": "MATCH (c:KubernetesContainer)-[r:BUILT_FROM]->(repo:GitHubRepository) WHERE r.lastupdated <> $UPDATE_TAG WITH r LIMIT $LIMIT_SIZE DELETE r RETURN COUNT(*) as TotalCompleted",
+            "iterative": true,
+            "iterationsize": 100
+        }
+    ]
+}

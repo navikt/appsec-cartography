@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - Dockerfile.cartography
+      - pyproject.toml
+      - cartography_nais/**
+      - tests/**
       - .github/workflows/build-deploy-cartography.yaml
       - .github/workflows/release-cartography-source.yaml
       - .nais/cartography-*.yaml
@@ -30,14 +33,11 @@ jobs:
             source: latest
             targets:
               - {collector: gcp, cluster: prod-gcp}
+              - {collector: nais, cluster: prod-gcp}
               - {collector: k8s, cluster: dev-fss}
               - {collector: k8s, cluster: dev-gcp}
               - {collector: k8s, cluster: prod-fss}
               - {collector: k8s, cluster: prod-gcp}
-          - repository: navikt/cartography
-            source: nais-module
-            targets:
-              - {collector: nais, cluster: prod-gcp}
           - repository: navikt/cartography
             source: github-module
             targets:

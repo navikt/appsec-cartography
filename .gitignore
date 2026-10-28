@@ -38,3 +38,9 @@ bin/
 .DS_Store
 
 .kotlin/
+
+### Python ###
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
