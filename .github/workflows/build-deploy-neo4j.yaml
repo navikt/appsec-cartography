@@ -17,7 +17,7 @@ jobs:
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: nais/docker-build-push@0e73849f69ff260ee27597553c0a7848ca4e9795
+      - uses: nais/docker-build-push@dd7421d5068057a020ca46ead966c26190c516b1
         id: docker-push-neo4j
         with:
           team: appsec

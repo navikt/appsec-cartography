@@ -55,7 +55,7 @@ jobs:
         run: |
           pipx run uv export --quiet --directory source --frozen --no-dev --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
           pipx run uv run --no-project --python 3.13 --with '.[test]' --with ./source --with-requirements "$RUNNER_TEMP/requirements.txt" pytest -q
-      - uses: nais/docker-build-push@0e73849f69ff260ee27597553c0a7848ca4e9795
+      - uses: nais/docker-build-push@dd7421d5068057a020ca46ead966c26190c516b1
         id: build
         with:
           team: appsec
