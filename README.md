@@ -1,49 +1,26 @@
 # appsec-cartography
 
-Repo that hosts and deploys dockerfiles related to our fork of [Cartography](https://github.com/navikt/cartography).
+Repo that builds and deploys [Cartography](https://github.com/cartography-cncf/cartography)
+and our [custom collectors](https://github.com/navikt/cartography).
 
 ## Releases
 
-**Build & deploy Cartography** runs on deployment configuration changes on
-`main`, or manually from the Actions tab. Its source/target matrix is the only
-release configuration:
+[Build & deploy Cartography](.github/workflows/build-deploy-cartography.yaml)
+runs on deployment configuration changes on `main`, or manually from Actions.
+GCP and Kubernetes use the latest stable upstream release; Nais and GitHub use
+our custom fork branches. See the workflow matrix for sources and cluster targets,
+[Dockerfile.cartography](Dockerfile.cartography) for the build, and [.nais](.nais)
+for deployment settings.
 
-| Source branch in `navikt/cartography` | Collectors | Clusters |
-|---|---|---|
-| `master` | GCP, Kubernetes | GCP in prod-gcp; Kubernetes in all four clusters |
-| `nais-module` | Nais | prod-gcp |
-| `github-module` | GitHub | prod-gcp |
+To roll back, run **Deploy existing Cartography image** on `main` with an image
+reference from a previous run summary. Neo4j is built and deployed separately
+through **Build & deploy Neo4j**.
 
-The reusable workflow builds each branch once using its existing `nais.Dockerfile`,
-pulls fresh base images, and publishes to the Nav registry with the standard Nais
-SBOM and signing. After a CLI smoke test, it deploys the same image digest to that
-branch's targets. Source commits and image references are recorded in the run
-summary. No cross-repository write credentials or fork workflow dispatches are needed.
+### Kubernetes
 
-Deployments use `nais/setup`, then `envsubst` and `nais apply` in the workflows.
-Templates use `${VARIABLE}` placeholders; Kubernetes values come from the
-existing `.nais/vars-k8s-<cluster>.yaml` files. Combined manifests keep their
-ConfigMap and Service resources. `--wait` checks application readiness; it does
-not wait for scheduled collector jobs to run.
-
-Python dependencies still come from each branch's `uv.lock`: merge dependency
-updates into the relevant source branch to release them. Rebuilding alone does
-not upgrade locked dependencies. Once the Nav modules share a source branch,
-combine their target lists in the matrix to build one shared image.
-
-For an urgent release, run **Build & deploy Cartography** on `main`. To retry a
-partial release, use **Re-run failed jobs**. To roll back, run **Deploy existing
-Cartography image** on `main`, select a collector, and provide a previous image
-reference from a run summary. Kubernetes deploys to all four clusters; other
-collectors deploy to prod-gcp. Manual deployments share the release concurrency
-group, so they wait for an active release to finish. Deploying updates the
-scheduled job definition; ingestion happens at the existing schedule.
-
-Neo4j remains independent: run **Build & deploy Neo4j** explicitly when its image
-needs updating. Collector releases do not restart Neo4j or modify its storage.
-
-#### Kubernetes
-Cartography-k8s requires a custom clusterrole + binding applied by platform, as documented [here](.nais/cartography-clusterrole.yaml). K8s jobs are deployed in a staggered fashion to avoid race conditions when updating the database.
+The [cluster role and binding](.nais/cartography-clusterrole.yaml) must be applied
+by the platform team. Collector schedules are staggered to avoid concurrent
+database updates.
 
 ## Contact
 

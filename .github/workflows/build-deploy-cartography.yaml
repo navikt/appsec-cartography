@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - Dockerfile.cartography
       - .github/workflows/build-deploy-cartography.yaml
       - .github/workflows/release-cartography-source.yaml
       - .nais/cartography-*.yaml
@@ -25,20 +26,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - source: master
+          - repository: cartography-cncf/cartography
+            source: latest
             targets:
               - {collector: gcp, cluster: prod-gcp}
               - {collector: k8s, cluster: dev-fss}
               - {collector: k8s, cluster: dev-gcp}
               - {collector: k8s, cluster: prod-fss}
               - {collector: k8s, cluster: prod-gcp}
-          - source: nais-module
+          - repository: navikt/cartography
+            source: nais-module
             targets:
               - {collector: nais, cluster: prod-gcp}
-          - source: github-module
+          - repository: navikt/cartography
+            source: github-module
             targets:
               - {collector: github, cluster: prod-gcp}
     uses: ./.github/workflows/release-cartography-source.yaml
     with:
+      repository: ${{ matrix.repository }}
       source: ${{ matrix.source }}
       targets: ${{ toJSON(matrix.targets) }}
