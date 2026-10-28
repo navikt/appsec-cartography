@@ -17,8 +17,10 @@ reference from a previous run summary. Neo4j is built and deployed separately
 through **Build & deploy Neo4j**.
 
 The local [Nais collector](cartography_nais) runs as `cartography-nais` alongside
-unmodified upstream Cartography. Its tests use a disposable Neo4j container:
-`uv run --no-project --python 3.13 --with '.[test]' pytest`.
+unmodified upstream Cartography. Run `mise install`, then
+`uv sync --locked --extra test` to set up development.
+Use `uv run --locked --extra test pytest` to test (requires Docker),
+and `uv run --locked cartography-nais --help` for collector options.
 
 ### Kubernetes
 
