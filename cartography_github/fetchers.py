@@ -22,6 +22,7 @@ from cartography_github.cache import CacheEntry
 from cartography_github.cache import Neo4jFetchCache
 from cartography_github.metadata import RepoState
 from cartography_github.metadata import RepoStates
+from cartography_github.metadata import github_instance
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +132,10 @@ class CachedGitHubFetches:
     def log_stats(self) -> None:
         logger.info("GitHub fetch cache results: %s", dict(sorted(self.stats.items())))
 
-    def _state(self, owner: str, repo: str) -> RepoState | None:
-        return self._repo_states.get((owner.lower(), repo.lower()))
+    def _state(self, api_url: str, owner: str, repo: str) -> RepoState | None:
+        return self._repo_states.get(
+            (github_instance(api_url), owner.lower(), repo.lower())
+        )
 
     def _max_age_for(self, key: str) -> float:
         # Spread expiry over the last quarter of the window so entries cached
@@ -174,14 +177,14 @@ class CachedGitHubFetches:
         ref: str = "HEAD",
         base_url: str = _DEFAULT_REST_BASE_URL,
     ) -> str | None:
-        state = self._state(owner, repo)
+        state = self._state(base_url, owner, repo)
         if state is None or ref not in ("HEAD", state.default_branch):
             self.stats["file_content.bypass"] += 1
             return self._get_file_content(
                 token, owner, repo, path, ref=ref, base_url=base_url
             )
 
-        key = f"file:{owner.lower()}/{repo.lower()}:{path}"
+        key = f"file:{github_instance(base_url)}/{owner.lower()}/{repo.lower()}:{path}"
         entry = self._load(key, self._file_content_fingerprint, state.head_oid)
         if entry is not None:
             self.stats["file_content.hit"] += 1
@@ -208,12 +211,17 @@ class CachedGitHubFetches:
         organization: str,
         repo: str,
     ) -> tuple[list[dict[str, Any]], bool]:
-        state = self._state(organization, repo)
+        state = self._state(api_url, organization, repo)
         if state is None:
             self.stats["dep_manifests.bypass"] += 1
             return self._get_repo_dep_manifests(token, api_url, organization, repo)
 
-        key = f"dep-manifests:{organization.lower()}/{repo.lower()}"
+        # blobPath contains the default branch name, so a rename at the same
+        # commit must not replay paths under the old branch.
+        key = (
+            f"dep-manifests:{github_instance(api_url)}/{organization.lower()}/"
+            f"{repo.lower()}@{state.default_branch}"
+        )
         entry = self._load(key, self._dep_manifests_fingerprint, state.head_oid)
         if entry is not None:
             self.stats["dep_manifests.hit"] += 1
@@ -250,7 +258,7 @@ class CachedGitHubFetches:
         repo_name: str,
         since_date: datetime,
     ) -> list[dict[str, Any]]:
-        state = self._state(organization, repo_name)
+        state = self._state(api_url, organization, repo_name)
         if (
             state is not None
             and state.pushed_at is not None

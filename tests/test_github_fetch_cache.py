@@ -17,6 +17,9 @@ from cartography_github.metadata import transform_repo_states
 NOW = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
 OLD_PUSH = NOW - timedelta(days=60)
 GRAPHQL_URL = "https://api.github.com/graphql"
+DOTCOM = "https://api.github.com"
+GHES_GRAPHQL_URL = "https://github.example.com/api/graphql"
+GHES = "https://github.example.com/api/v3"
 
 
 class FakeCache:
@@ -46,7 +49,7 @@ def make_fetches(state=None, clock=None):
     state = state or RepoState("oid-1", "main", OLD_PUSH)
     return CachedGitHubFetches(
         FakeCache(),
-        {("navikt", "app"): state},
+        {(DOTCOM, "navikt", "app"): state},
         clock=clock or Clock(),
     )
 
@@ -82,7 +85,9 @@ def test_file_content_is_refetched_when_default_branch_moves_or_entry_expires():
 
     fetches.get_file_content("token", "navikt", "app", "uv.lock")
     fetches.get_file_content("token", "navikt", "app", "uv.lock")
-    fetches._repo_states[("navikt", "app")] = RepoState("oid-2", "main", OLD_PUSH)
+    fetches._repo_states[(DOTCOM, "navikt", "app")] = RepoState(
+        "oid-2", "main", OLD_PUSH
+    )
     fetches.get_file_content("token", "navikt", "app", "uv.lock")
     clock.now += timedelta(days=7).total_seconds()
     fetches.get_file_content("token", "navikt", "app", "uv.lock")
@@ -129,9 +134,48 @@ def test_dep_manifests_are_cached_only_when_complete_and_settled():
     }
 
 
+def test_dep_manifests_are_refetched_after_default_branch_rename_at_same_commit():
+    fetches = make_fetches(state=RepoState("oid-1", "master", OLD_PUSH))
+    fetches._get_repo_dep_manifests = Mock(
+        side_effect=[
+            ([{"blobPath": "/navikt/app/blob/master/uv.lock"}], True),
+            ([{"blobPath": "/navikt/app/blob/main/uv.lock"}], True),
+        ]
+    )
+
+    fetches.get_repo_dep_manifests("token", GRAPHQL_URL, "navikt", "app")
+    fetches._repo_states[(DOTCOM, "navikt", "app")] = RepoState(
+        "oid-1", "main", OLD_PUSH
+    )
+    manifests, _ = fetches.get_repo_dep_manifests("token", GRAPHQL_URL, "navikt", "app")
+
+    assert manifests == [{"blobPath": "/navikt/app/blob/main/uv.lock"}]
+    assert fetches.stats == {"dep_manifests.miss": 2}
+
+
+def test_same_repo_name_on_another_github_instance_does_not_share_state_or_cache():
+    fetches = make_fetches()
+    fetches._repo_states[(GHES, "navikt", "app")] = RepoState(
+        "oid-ghes", "main", OLD_PUSH
+    )
+    fetches._get_file_content = Mock(return_value="content")
+    fetches._get_repo_commits = Mock(return_value=[])
+    since = NOW - timedelta(days=30)
+
+    fetches.get_file_content("token", "navikt", "app", "CODEOWNERS", base_url=DOTCOM)
+    fetches.get_file_content("token", "navikt", "app", "CODEOWNERS", base_url=GHES)
+    fetches.get_repo_commits("token", GHES_GRAPHQL_URL, "navikt", "unknown", since)
+
+    assert [c.kwargs["ref"] for c in fetches._get_file_content.call_args_list] == [
+        "oid-1",
+        "oid-ghes",
+    ]
+    assert fetches.stats == {"file_content.miss": 2, "commits.fetched": 1}
+
+
 def test_commits_are_skipped_only_without_a_push_in_the_lookback_window():
     fetches = make_fetches()
-    fetches._repo_states[("navikt", "active")] = RepoState("oid", "main", NOW)
+    fetches._repo_states[(DOTCOM, "navikt", "active")] = RepoState("oid", "main", NOW)
     fetches._get_repo_commits = Mock(return_value=[{"committedDate": "x"}])
     since = NOW - timedelta(days=30)
 
@@ -143,6 +187,7 @@ def test_commits_are_skipped_only_without_a_push_in_the_lookback_window():
 
 def test_repo_states_skip_repos_without_a_default_branch():
     states = transform_repo_states(
+        DOTCOM,
         "NAVIKT",
         [
             None,
@@ -156,7 +201,7 @@ def test_repo_states_skip_repos_without_a_default_branch():
     )
 
     assert states == {
-        ("navikt", "app"): RepoState(
+        (DOTCOM, "navikt", "app"): RepoState(
             "abc", "main", datetime(2026, 10, 1, 10, tzinfo=timezone.utc)
         ),
     }

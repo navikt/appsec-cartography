@@ -7,6 +7,7 @@ from typing import Any
 
 from cartography.intel.github.app_auth import make_credential
 from cartography.intel.github.util import fetch_all
+from cartography.intel.github.util import rest_api_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,13 @@ class RepoState:
     pushed_at: datetime | None
 
 
-RepoStates = dict[tuple[str, str], RepoState]
+# Keyed by (GitHub instance, organization, repository), all lowercase.
+RepoStates = dict[tuple[str, str, str], RepoState]
+
+
+def github_instance(api_url: str) -> str:
+    """Map an instance's GraphQL or REST URL to one identity."""
+    return rest_api_base_url(api_url).lower()
 
 
 def parse_github_datetime(value: str | None) -> datetime | None:
@@ -61,7 +68,11 @@ def parse_github_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def transform_repo_states(organization: str, nodes: list[Any]) -> RepoStates:
+def transform_repo_states(
+    instance: str,
+    organization: str,
+    nodes: list[Any],
+) -> RepoStates:
     states: RepoStates = {}
     for node in nodes:
         if not node or not node.get("name"):
@@ -70,7 +81,7 @@ def transform_repo_states(organization: str, nodes: list[Any]) -> RepoStates:
         oid = (branch.get("target") or {}).get("oid")
         if not oid:
             continue
-        states[(organization.lower(), node["name"].lower())] = RepoState(
+        states[(instance, organization.lower(), node["name"].lower())] = RepoState(
             head_oid=oid,
             default_branch=branch.get("name"),
             pushed_at=parse_github_datetime(node.get("pushedAt")),
@@ -104,7 +115,11 @@ def get_repo_states(github_config: str) -> RepoStates:
                 exc_info=True,
             )
             continue
-        org_states = transform_repo_states(organization, data.nodes)
+        org_states = transform_repo_states(
+            github_instance(auth_data["url"]),
+            organization,
+            data.nodes,
+        )
         logger.info(
             "Listed %d repositories with a default branch in GitHub org %s",
             len(org_states),
