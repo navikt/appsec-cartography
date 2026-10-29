@@ -1,14 +1,14 @@
 # appsec-cartography
 
 Repo that builds and deploys [Cartography](https://github.com/cartography-cncf/cartography)
-and our [GitHub collector](https://github.com/navikt/cartography).
+and our local Nais collector.
 
 ## Releases
 
 [Build & deploy Cartography](.github/workflows/build-deploy-cartography.yaml)
 runs on deployment configuration changes on `main`, or manually from Actions.
 GCP, Kubernetes, and Nais use the latest stable upstream release; GitHub uses
-our custom fork branch. See the workflow matrix for sources and cluster targets,
+upstream `master` for a production trial. See the workflow matrix for sources and cluster targets,
 [Dockerfile.cartography](Dockerfile.cartography) for the build, and [.nais](.nais)
 for deployment settings.
 

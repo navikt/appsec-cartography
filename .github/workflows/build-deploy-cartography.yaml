@@ -38,8 +38,8 @@ jobs:
               - {collector: k8s, cluster: dev-gcp}
               - {collector: k8s, cluster: prod-fss}
               - {collector: k8s, cluster: prod-gcp}
-          - repository: navikt/cartography
-            source: github-module
+          - repository: cartography-cncf/cartography
+            source: master
             targets:
               - {collector: github, cluster: prod-gcp}
     uses: ./.github/workflows/release-cartography-source.yaml

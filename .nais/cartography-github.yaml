@@ -24,9 +24,6 @@ spec:
     - create-indexes,github
     - --github-config-env-var
     - GITHUB_CONFIG
-    - --github-incremental-sync
-    - --github-parallel-workers
-    - "4"
   envFrom:
     - secret: cartography
   env:
