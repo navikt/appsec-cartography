@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cartography-nais"
 version = "0.1.0"
-description = "Nais collector for upstream Cartography"
+description = "Nais and GitHub collectors for upstream Cartography"
 requires-python = ">=3.13"
 license = "Apache-2.0"
 dependencies = ["cartography>=0.143.0"]
@@ -15,9 +15,10 @@ test = ["pytest>=8", "testcontainers[neo4j]>=4.15"]
 
 [project.scripts]
 cartography-nais = "cartography_nais.cli:main"
+cartography-github = "cartography_github.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["cartography_nais*"]
+include = ["cartography_nais*", "cartography_github*"]
 
 [tool.setuptools.package-data]
 "cartography_nais.analysis" = ["*.json"]
