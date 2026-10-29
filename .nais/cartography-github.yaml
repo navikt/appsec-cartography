@@ -6,27 +6,25 @@ metadata:
   labels:
     team: appsec
 spec:
-  schedule: "5 06,18 * * *"
+  # Manual runs only during the baseline comparison: February 31 never occurs.
+  # Restore "5 06,18 * * *" afterwards.
+  schedule: "0 0 31 2 *"
   concurrencyPolicy: Forbid
   image: "${IMAGE}"
   backoffLimit: 2
   successfulJobsHistoryLimit: 1
   ttlSecondsAfterFinished: 1800
   command:
-    - cartography
+    - cartography-github
     - --neo4j-uri
     - bolt://neo4j-bolt.appsec.svc.cluster.local
     - --neo4j-user
     - neo4j
     - --neo4j-password-env-var
     - NEO4J_PASSWORD
-    - --selected-modules
-    - create-indexes,github
     - --github-config-env-var
     - GITHUB_CONFIG
-    - --github-incremental-sync
-    - --github-parallel-workers
-    - "4"
+    - --no-fetch-cache
   envFrom:
     - secret: cartography
   env:
