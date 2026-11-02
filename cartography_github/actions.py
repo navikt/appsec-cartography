@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import neo4j
+import requests
 
 import cartography.intel.github.actions as upstream
 from cartography.client.core.tx import read_list_of_dicts_tx, run_write_query
@@ -23,6 +24,7 @@ class _RepoActionsData:
     repo_url: str
     pushedat: str | None = None
     workflows_skipped: bool = False
+    workflows_unavailable: bool = False
     enriched_workflows: list[dict[str, Any]] = field(default_factory=list)
     repo_actions: list[dict[str, Any]] = field(default_factory=list)
     environments: list[dict[str, Any]] = field(default_factory=list)
@@ -30,6 +32,13 @@ class _RepoActionsData:
     repo_variables: list[dict[str, Any]] = field(default_factory=list)
     env_secrets: list[dict[str, Any]] = field(default_factory=list)
     env_variables: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ActionsSyncResult:
+    workflows: list[dict[str, Any]]
+    # Repos whose workflow listing was unavailable; their bookmarks must not advance.
+    incomplete_repo_urls: list[str] = field(default_factory=list)
 
 
 def _get_repos_from_graph(
@@ -43,10 +52,47 @@ def _get_repos_from_graph(
         MATCH (org:GitHubOrganization {id: $org_url})<-[:OWNER]-(repo:GitHubRepository)
         RETURN repo.name AS name, repo.id AS url, repo.pushedat AS pushedat,
                repo.synced_pushedat AS synced_pushedat,
-               repo.archived AS archived, repo.disabled AS disabled
+               repo.defaultbranch AS defaultbranch,
+               repo.synced_defaultbranch AS synced_defaultbranch,
+               repo.archived AS archived, repo.disabled AS disabled,
+               [(repo)-[:HAS_SECRET]->(secret:GitHubActionsSecret) | secret.id]
+                   AS secret_ids
         ORDER BY repo.name
         """,
         org_url=org_url,
+    )
+
+
+def _get_new_secret_ids(
+    neo4j_session: neo4j.Session,
+    secret_ids: list[str],
+) -> list[str]:
+    if not secret_ids:
+        return []
+    rows = neo4j_session.execute_read(
+        read_list_of_dicts_tx,
+        """
+        UNWIND $secret_ids AS secret_id
+        OPTIONAL MATCH (secret:GitHubActionsSecret {id: secret_id})
+        WITH secret_id, secret WHERE secret IS NULL
+        RETURN secret_id
+        """,
+        secret_ids=secret_ids,
+    )
+    return [row["secret_id"] for row in rows]
+
+
+def _get_repo_workflows(
+    token: str,
+    api_url: str,
+    organization: str,
+    repo_name: str,
+) -> list[dict[str, Any]]:
+    """List workflows, raising on 403 instead of treating it as an empty listing."""
+    base_url = upstream._get_rest_api_base_url(api_url)
+    endpoint = f"/repos/{organization}/{repo_name}/actions/workflows"
+    return upstream.fetch_all_rest_api_pages(
+        token, base_url, endpoint, "workflows", raise_on_status=(403,)
     )
 
 
@@ -66,39 +112,7 @@ def _fetch_actions_for_repo(
         repo_url=repo["url"],
         pushedat=repo.get("pushedat"),
     )
-    skip_workflows = (
-        skip_unchanged_repos
-        and repo.get("pushedat") is not None
-        and repo.get("synced_pushedat") is not None
-        and repo["pushedat"] == repo["synced_pushedat"]
-    )
-    if skip_workflows:
-        data.workflows_skipped = True
-    else:
-        workflows = upstream.get_repo_workflows(
-            token, api_url, organization, repo["name"]
-        )
-        for workflow in upstream.transform_workflows(
-            workflows or [], organization, repo["name"]
-        ):
-            content = None
-            path = workflow.get("path")
-            if path:
-                content = upstream.get_workflow_content(
-                    token, api_url, organization, repo["name"], path
-                )
-            parsed = upstream.parse_workflow_yaml(content) if content else None
-            enriched = upstream.enrich_workflow_with_parsed_content(
-                workflow, parsed, organization, repo["name"]
-            )
-            data.enriched_workflows.append(enriched)
-            if parsed and workflow.get("id") is not None:
-                data.repo_actions.extend(
-                    upstream.transform_actions(
-                        parsed, workflow["id"], organization, repo["name"]
-                    )
-                )
-
+    # Settings are fetched first so new secrets can invalidate a workflow bookmark.
     environments = upstream.get_repo_environments(
         token, api_url, organization, repo["name"]
     ) or []
@@ -136,6 +150,53 @@ def _fetch_actions_for_repo(
                     env_variables, organization, repo["name"], name, env_id
                 )
             )
+
+    known_secret_ids = set(repo.get("secret_ids") or [])
+    has_new_repo_secrets = any(
+        secret.get("id") not in known_secret_ids for secret in data.repo_secrets
+    )
+    skip_workflows = (
+        skip_unchanged_repos
+        and not has_new_repo_secrets
+        and repo.get("pushedat") is not None
+        and repo.get("synced_pushedat") is not None
+        and repo["pushedat"] == repo["synced_pushedat"]
+        and repo.get("defaultbranch") == repo.get("synced_defaultbranch")
+    )
+    if skip_workflows:
+        data.workflows_skipped = True
+    else:
+        try:
+            workflows = _get_repo_workflows(token, api_url, organization, repo["name"])
+        except requests.exceptions.HTTPError:
+            logger.warning(
+                "Workflow listing unavailable for %s/%s; preserving existing workflows.",
+                organization,
+                repo["name"],
+                exc_info=True,
+            )
+            data.workflows_unavailable = True
+            workflows = []
+        for workflow in upstream.transform_workflows(
+            workflows or [], organization, repo["name"]
+        ):
+            content = None
+            path = workflow.get("path")
+            if path:
+                content = upstream.get_workflow_content(
+                    token, api_url, organization, repo["name"], path
+                )
+            parsed = upstream.parse_workflow_yaml(content) if content else None
+            enriched = upstream.enrich_workflow_with_parsed_content(
+                workflow, parsed, organization, repo["name"]
+            )
+            data.enriched_workflows.append(enriched)
+            if parsed and workflow.get("id") is not None:
+                data.repo_actions.extend(
+                    upstream.transform_actions(
+                        parsed, workflow["id"], organization, repo["name"]
+                    )
+                )
 
     with counter_lock:
         counter[0] += 1
@@ -257,7 +318,7 @@ def sync(
     parallel_workers: int = 1,
     skip_archived_repos: bool = False,
     skip_unchanged_repos: bool = False,
-) -> list[dict[str, Any]]:
+) -> ActionsSyncResult:
     """Sync Actions data; API work is parallel and all Neo4j writes are serial."""
     if parallel_workers < 1:
         raise ValueError("parallel_workers must be at least 1")
@@ -268,9 +329,21 @@ def sync(
         github_api_key, github_url, organization
     )
     if org_secrets:
+        transformed_org_secrets = upstream.transform_org_secrets(
+            org_secrets, organization
+        )
+        if skip_unchanged_repos and _get_new_secret_ids(
+            neo4j_session,
+            [secret["id"] for secret in transformed_org_secrets],
+        ):
+            logger.info(
+                "New organization secrets in %s; refreshing all workflows to link them.",
+                organization,
+            )
+            skip_unchanged_repos = False
         upstream.load_org_secrets(
             neo4j_session,
-            upstream.transform_org_secrets(org_secrets, organization),
+            transformed_org_secrets,
             update_tag,
             org_url,
         )
@@ -296,6 +369,7 @@ def sync(
     counter: list[int] = [0]
     counter_lock = threading.Lock()
     skipped_urls: list[str] = []
+    incomplete_urls: list[str] = []
     workflows: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
         futures = {
@@ -316,15 +390,10 @@ def sync(
             data = future.result()
             if data.workflows_skipped:
                 skipped_urls.append(data.repo_url)
-            if data.enriched_workflows:
-                upstream.load_workflows(
-                    neo4j_session, data.enriched_workflows, update_tag, org_url
-                )
-                workflows.extend(data.enriched_workflows)
-            if data.repo_actions:
-                upstream.load_actions(
-                    neo4j_session, data.repo_actions, update_tag, org_url
-                )
+            if data.workflows_unavailable:
+                skipped_urls.append(data.repo_url)
+                incomplete_urls.append(data.repo_url)
+            # Secrets must exist before workflows so REFERENCES_SECRET edges match.
             if data.environments:
                 upstream.load_environments(
                     neo4j_session, data.environments, update_tag, org_url
@@ -345,6 +414,15 @@ def sync(
                 upstream.load_env_variables(
                     neo4j_session, data.env_variables, update_tag, org_url
                 )
+            if data.enriched_workflows:
+                upstream.load_workflows(
+                    neo4j_session, data.enriched_workflows, update_tag, org_url
+                )
+                workflows.extend(data.enriched_workflows)
+            if data.repo_actions:
+                upstream.load_actions(
+                    neo4j_session, data.repo_actions, update_tag, org_url
+                )
 
     _touch_skipped_workflows(neo4j_session, skipped_urls, update_tag)
     _touch_archived_actions(neo4j_session, archived_urls, update_tag)
@@ -358,4 +436,4 @@ def sync(
         cleanup_params,
     )
     upstream.cleanup_org_level(neo4j_session, cleanup_params)
-    return workflows
+    return ActionsSyncResult(workflows=workflows, incomplete_repo_urls=incomplete_urls)

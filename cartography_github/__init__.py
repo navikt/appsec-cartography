@@ -70,6 +70,8 @@ def start_github_ingestion(
     auth_data = json.loads(base64.b64decode(config.github_config).decode())
     job_parameters = {"UPDATE_TAG": config.update_tag}
     pending_bookmarks: list[dict[str, str]] = []
+    pending_manifest_bookmarks: list[dict[str, str]] = []
+    all_repos_complete = True
     processed_any_org = False
     started = time.monotonic()
     logger.info(
@@ -139,7 +141,7 @@ def start_github_ingestion(
             github_teams=github_teams,
         )
         with _timed_stage("actions", org_name):
-            all_workflows = actions.sync(
+            actions_result = actions.sync(
                 neo4j_session,
                 job_parameters,
                 token,
@@ -152,7 +154,7 @@ def start_github_ingestion(
 
         repo_names = [
             repo["name"]
-            for repo in repo_result.repos
+            for repo in repo_result.raw_repos
             if not incremental_sync
             or not (repo.get("isArchived") or repo.get("isDisabled"))
         ]
@@ -206,7 +208,7 @@ def start_github_ingestion(
                     job_parameters,
                     additional_observed_digests=observed_and_skipped,
                 )
-        if repo_result.repos:
+        if repo_result.raw_repos:
             with _timed_stage("supply-chain", org_name):
                 supply_chain.sync(
                     neo4j_session,
@@ -215,16 +217,33 @@ def start_github_ingestion(
                     org_name,
                     config.update_tag,
                     job_parameters,
-                    repo_result.repos,
-                    workflows=all_workflows,
+                    repo_result.raw_repos,
+                    workflows=actions_result.workflows,
                 )
 
+        all_repos_complete = all_repos_complete and repo_result.repos_complete
+        pending_manifest_bookmarks.extend(repo_result.manifest_bookmark_updates)
         if incremental_sync and repo_result.repos_complete:
-            pending_bookmarks.extend(repo_result.repo_pushedat_updates)
+            incomplete_actions = set(actions_result.incomplete_repo_urls)
+            pending_bookmarks.extend(
+                update
+                for update in repo_result.repo_pushedat_updates
+                if update["repo_url"] not in incomplete_actions
+            )
         processed_any_org = True
 
     if processed_any_org:
-        cleanup_unscoped_github_resources(neo4j_session, job_parameters)
+        if all_repos_complete:
+            cleanup_unscoped_github_resources(neo4j_session, job_parameters)
+        else:
+            # Global repo and dependency cleanup would delete repos missing from
+            # an incomplete listing, so only clean up users this run.
+            logger.warning(
+                "Skipping global GitHub repository cleanup because a repository "
+                "listing was incomplete."
+            )
+            users.cleanup(neo4j_session, job_parameters)
+        repos._write_manifest_bookmarks(neo4j_session, pending_manifest_bookmarks)
         if pending_bookmarks:
             repos._write_synced_pushedat(neo4j_session, pending_bookmarks)
     logger.info(

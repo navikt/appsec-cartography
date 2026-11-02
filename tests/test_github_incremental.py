@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 import threading
 from types import SimpleNamespace
 
+import requests
+
 import cartography.intel.github.actions as upstream_actions
 import cartography.intel.github.repos as upstream_repos
 import cartography.intel.github.commits as upstream_commits
@@ -180,13 +182,15 @@ def test_manifest_bookmark_only_advances_for_complete_repo_fetches(monkeypatch):
         "url": "https://github.com/example/partial",
         "pushedAt": "2026-10-03T00:00:00Z",
     }
-    writes = []
+    touched = []
     monkeypatch.setattr(
         local_repos,
         "_get_manifests_synced_bookmarks",
         lambda session, urls: {},
     )
-    monkeypatch.setattr(local_repos, "_touch_skipped_manifests", lambda *args: None)
+    monkeypatch.setattr(
+        local_repos, "_touch_skipped_manifests", lambda session, urls, tag: touched.extend(urls)
+    )
     monkeypatch.setattr(
         local_repos,
         "_fetch_manifest",
@@ -197,13 +201,7 @@ def test_manifest_bookmark_only_advances_for_complete_repo_fetches(monkeypatch):
             None,
         ),
     )
-    monkeypatch.setattr(
-        local_repos,
-        "_update_manifests_synced_bookmarks",
-        lambda session, updates: writes.extend(updates),
-    )
-
-    data, cleanup_safe = local_repos._get_dep_manifests_for_repos(
+    data, cleanup_safe, bookmarks, complete_urls = local_repos._get_dep_manifests_for_repos(
         [repo_ok, repo_partial],
         "example",
         "api",
@@ -216,7 +214,11 @@ def test_manifest_bookmark_only_advances_for_complete_repo_fetches(monkeypatch):
 
     assert set(data) == {repo_ok["url"], repo_partial["url"]}
     assert cleanup_safe is False
-    assert writes == [{"repo_url": repo_ok["url"], "pushedat": repo_ok["pushedAt"]}]
+    assert bookmarks == [
+        {"repo_url": repo_ok["url"], "pushedat": repo_ok["pushedAt"], "defaultbranch": None}
+    ]
+    assert complete_urls == [repo_ok["url"]]
+    assert touched == [repo_partial["url"]]
 
 
 def test_stale_commit_filter_keeps_unknown_and_recent_repositories():
@@ -316,7 +318,7 @@ def test_repos_sync_runs_parallel_fetches_without_worker_database_access(monkeyp
         "cleanup_branch_protection_rules",
         "cleanup_rulesets",
     }
-    assert result.repos == repos
+    assert result.raw_repos == repos
     assert result.repos_complete is True
 
 
@@ -353,14 +355,20 @@ def test_repos_sync_partial_fetch_and_listing_preserve_bookmarks_and_subgraphs(
         incremental_sync=True,
     )
 
-    manifest_bookmark_writes = [
-        params["updates"]
+    assert not any("manifests_synced_pushedat" in query for query, _, _ in writes)
+    assert result.manifest_bookmark_updates == [
+        {
+            "repo_url": repo_complete["url"],
+            "pushedat": repo_complete["pushedAt"],
+            "defaultbranch": None,
+        }
+    ]
+    repo_cleanups = [
+        params["repo_urls"]
         for query, params, _ in writes
-        if "manifests_synced_pushedat" in query
+        if "DETACH DELETE m" in query
     ]
-    assert manifest_bookmark_writes == [
-        [{"repo_url": repo_complete["url"], "pushedat": repo_complete["pushedAt"]}]
-    ]
+    assert repo_cleanups == [[repo_complete["url"]]]
     assert result.manifests_cleanup_safe is False
     assert result.repos_complete is False
     assert not {
@@ -369,7 +377,7 @@ def test_repos_sync_partial_fetch_and_listing_preserve_bookmarks_and_subgraphs(
         "cleanup_branch_protection_rules",
         "cleanup_rulesets",
     }.intersection(cleanup_calls)
-    assert {repo["url"] for repo in result.repos} == {
+    assert {repo["url"] for repo in result.raw_repos} == {
         repo_complete["url"],
         repo_incomplete["url"],
     }
@@ -413,7 +421,7 @@ def test_warm_manifest_bookmark_skips_manifest_fetch(monkeypatch):
     )
 
     assert result.manifests_cleanup_safe is True
-    assert not any("manifests_synced_pushedat" in query for query, _, _ in writes)
+    assert result.manifest_bookmark_updates == []
     assert {thread_id for _, _, thread_id in writes} == {caller_thread}
 
 
@@ -426,7 +434,6 @@ def test_archived_manifest_is_not_fetched_or_bookmarked_and_is_touched(monkeypat
         "isDisabled": False,
     }
     touched = []
-    bookmarks = []
     monkeypatch.setattr(local_repos, "_get_manifests_synced_bookmarks", lambda *args: {})
     monkeypatch.setattr(
         local_repos,
@@ -436,13 +443,7 @@ def test_archived_manifest_is_not_fetched_or_bookmarked_and_is_touched(monkeypat
     monkeypatch.setattr(
         local_repos, "_touch_skipped_manifests", lambda session, urls, tag: touched.extend(urls)
     )
-    monkeypatch.setattr(
-        local_repos,
-        "_update_manifests_synced_bookmarks",
-        lambda session, updates: bookmarks.extend(updates),
-    )
-
-    manifests, cleanup_safe = local_repos._get_dep_manifests_for_repos(
+    manifests, cleanup_safe, bookmarks, _ = local_repos._get_dep_manifests_for_repos(
         [repo],
         "example",
         "api",
@@ -474,6 +475,7 @@ def test_actions_sync_skips_warm_and_archived_workflows_but_refreshes_settings(
                 "synced_pushedat": "2026-10-01T00:00:00Z",
                 "archived": False,
                 "disabled": False,
+                "secret_ids": ["transform_repo_secrets"],
             },
             {
                 "name": "archived",
@@ -533,7 +535,7 @@ def test_actions_sync_skips_warm_and_archived_workflows_but_refreshes_settings(
         "transform_env_secrets",
         "transform_env_variables",
     ):
-        monkeypatch.setattr(upstream_actions, name, lambda *args, name=name: [name])
+        monkeypatch.setattr(upstream_actions, name, lambda *args, name=name: [{"id": name}])
     for name in (
         "load_environments",
         "load_repo_secrets",
@@ -556,7 +558,7 @@ def test_actions_sync_skips_warm_and_archived_workflows_but_refreshes_settings(
     monkeypatch.setattr(local_actions, "run_analysis_job", lambda *args: None)
     monkeypatch.setattr(upstream_actions, "cleanup_org_level", lambda *args: None)
 
-    workflows = local_actions.sync(
+    result = local_actions.sync(
         session,
         {"UPDATE_TAG": 24},
         "token",
@@ -567,7 +569,8 @@ def test_actions_sync_skips_warm_and_archived_workflows_but_refreshes_settings(
         skip_unchanged_repos=True,
     )
 
-    assert {workflow["repo_url"] for workflow in workflows} == {
+    assert result.incomplete_repo_urls == []
+    assert {workflow["repo_url"] for workflow in result.workflows} == {
         active_url,
         archived_url,
     }
@@ -756,3 +759,237 @@ def test_touch_archived_actions_preserves_repo_and_environment_subgraphs(
     assert record is not None
     assert record["archived"] is True
     assert set(value for key, value in record.items() if key != "archived") == {99}
+
+
+def test_full_refresh_fetches_archived_repository_manifests(monkeypatch):
+    repo = {"name": "retired", "url": "https://github.com/example/retired", "isArchived": True}
+    monkeypatch.setattr(
+        upstream_repos, "_get_repo_dep_manifests", lambda *args: ([{"id": "m"}], True)
+    )
+
+    _, manifests, cleanup_safe, skip_reason = local_repos._fetch_manifest(
+        repo, "token", "api", "example", False
+    )
+
+    assert manifests == [{"id": "m"}]
+    assert cleanup_safe is True
+    assert skip_reason is None
+
+
+def test_default_branch_change_invalidates_manifest_bookmark(monkeypatch):
+    repo = {
+        "name": "project",
+        "url": "https://github.com/example/project",
+        "pushedAt": "2026-10-01T00:00:00Z",
+        "defaultBranchRef": {"name": "main"},
+        "manifests_synced_pushedat": "2026-10-01T00:00:00Z",
+        "manifests_synced_defaultbranch": "master",
+    }
+    monkeypatch.setattr(
+        upstream_repos, "_get_repo_dep_manifests", lambda *args: ([{"id": "m"}], True)
+    )
+
+    _, manifests, _, skip_reason = local_repos._fetch_manifest(
+        repo, "token", "api", "example", True
+    )
+
+    assert manifests == [{"id": "m"}]
+    assert skip_reason is None
+
+
+def test_failed_manifest_fetch_preserves_existing_graph_without_bookmark(monkeypatch):
+    repo = {
+        "name": "flaky",
+        "url": "https://github.com/example/flaky",
+        "pushedAt": "2026-10-01T00:00:00Z",
+    }
+    touched = []
+    monkeypatch.setattr(local_repos, "_get_manifests_synced_bookmarks", lambda *args: {})
+    monkeypatch.setattr(
+        local_repos, "_touch_skipped_manifests", lambda session, urls, tag: touched.extend(urls)
+    )
+
+    def fail(*args):
+        raise requests.exceptions.Timeout("timeout")
+
+    monkeypatch.setattr(local_repos, "_fetch_manifest", fail)
+
+    _, cleanup_safe, bookmarks, complete_urls = local_repos._get_dep_manifests_for_repos(
+        [repo],
+        "example",
+        "api",
+        "token",
+        neo4j_session=object(),
+        update_tag=27,
+        incremental_sync=True,
+        parallel_workers=1,
+    )
+
+    assert cleanup_safe is False
+    assert bookmarks == []
+    assert complete_urls == []
+    assert touched == [repo["url"]]
+
+
+def test_repos_sync_migrates_and_preloads_manifests_before_upstream_load(monkeypatch):
+    repo = {
+        "name": "project",
+        "url": "https://github.com/example/project",
+        "pushedAt": "2026-10-01T00:00:00Z",
+        "isArchived": False,
+        "isDisabled": False,
+    }
+    session, _, _, _ = _mock_repo_sync_boundary(monkeypatch, [repo])
+    transformed = {
+        "repos": [{"id": repo["url"], "owner_org_id": "https://github.com/example"}],
+        "dependencies": [],
+        "manifests": [{"id": "manifest"}],
+    }
+    order = []
+    monkeypatch.setattr(upstream_repos, "transform", lambda *args: transformed)
+    monkeypatch.setattr(
+        upstream_repos,
+        "migrate_dependency_graph_manifest_label",
+        lambda *args: order.append("migrate"),
+    )
+    monkeypatch.setattr(
+        upstream_repos,
+        "load_github_dependency_manifests",
+        lambda session, tag, manifests, owner: order.append(("manifests", manifests)),
+    )
+    monkeypatch.setattr(upstream_repos, "load", lambda *args: order.append("load"))
+
+    result = local_repos.sync(
+        session,
+        {"UPDATE_TAG": 28},
+        "token",
+        "https://api.github.com/graphql",
+        "example",
+        incremental_sync=True,
+    )
+
+    assert order == ["migrate", ("manifests", [{"id": "manifest"}]), "load"]
+    assert result.repos is transformed["repos"]
+    assert result.raw_repos == [repo]
+
+
+def _run_single_repo_actions_sync(monkeypatch, repo, *, workflows=None, secrets=()):
+    session = _RecordingSession(repos=[repo])
+    loads = []
+    listed = []
+    monkeypatch.setattr(upstream_actions, "get_org_secrets", lambda *args: [])
+    monkeypatch.setattr(upstream_actions, "get_org_variables", lambda *args: [])
+
+    def list_workflows(*args):
+        listed.append(args[3])
+        if isinstance(workflows, Exception):
+            raise workflows
+        return workflows or []
+
+    monkeypatch.setattr(local_actions, "_get_repo_workflows", list_workflows)
+    monkeypatch.setattr(upstream_actions, "get_workflow_content", lambda *args: None)
+    for name in (
+        "get_repo_environments",
+        "get_repo_variables",
+        "get_env_secrets",
+        "get_env_variables",
+    ):
+        monkeypatch.setattr(upstream_actions, name, lambda *args: [])
+    monkeypatch.setattr(
+        upstream_actions, "get_repo_secrets", lambda *args: [{"name": s} for s in secrets]
+    )
+    monkeypatch.setattr(
+        upstream_actions,
+        "transform_repo_secrets",
+        lambda rows, org, name: [
+            {"id": f"https://github.com/{org}/{name}/actions/secrets/{row['name']}"}
+            for row in rows
+        ],
+    )
+    for name in ("load_repo_secrets", "load_workflows"):
+        monkeypatch.setattr(
+            upstream_actions, name, lambda *args, name=name: loads.append(name)
+        )
+    monkeypatch.setattr(local_actions, "run_write_query", lambda *args, **kwargs: None)
+    monkeypatch.setattr(local_actions, "run_analysis_job", lambda *args: None)
+    monkeypatch.setattr(upstream_actions, "cleanup_org_level", lambda *args: None)
+
+    result = local_actions.sync(
+        session,
+        {"UPDATE_TAG": 29},
+        "token",
+        "https://api.github.com",
+        "example",
+        parallel_workers=1,
+        skip_archived_repos=True,
+        skip_unchanged_repos=True,
+    )
+    return result, listed, loads
+
+
+def _warm_repo(**overrides):
+    return {
+        "name": "project",
+        "url": "https://github.com/example/project",
+        "pushedat": "2026-10-01T00:00:00Z",
+        "synced_pushedat": "2026-10-01T00:00:00Z",
+        "defaultbranch": "main",
+        "synced_defaultbranch": "main",
+        "archived": False,
+        "disabled": False,
+        "secret_ids": [],
+        **overrides,
+    }
+
+
+def test_new_repo_secret_refetches_workflows_after_loading_secrets(monkeypatch):
+    workflow = {"id": 1, "name": "ci", "path": ".github/workflows/ci.yml", "state": "active"}
+
+    result, listed, loads = _run_single_repo_actions_sync(
+        monkeypatch, _warm_repo(), workflows=[workflow], secrets=["TOKEN"]
+    )
+
+    assert listed == ["project"]
+    assert loads == ["load_repo_secrets", "load_workflows"]
+    assert result.incomplete_repo_urls == []
+
+
+def test_default_branch_change_refetches_workflows(monkeypatch):
+    _, listed, _ = _run_single_repo_actions_sync(
+        monkeypatch, _warm_repo(synced_defaultbranch="master")
+    )
+
+    assert listed == ["project"]
+
+
+def test_unavailable_workflow_listing_is_preserved_and_reported(monkeypatch):
+    error = requests.exceptions.HTTPError("403 Forbidden")
+
+    result, listed, loads = _run_single_repo_actions_sync(
+        monkeypatch, _warm_repo(synced_pushedat=None), workflows=error
+    )
+
+    assert listed == ["project"]
+    assert "load_workflows" not in loads
+    assert result.incomplete_repo_urls == ["https://github.com/example/project"]
+
+
+def test_cleanup_repo_manifests_removes_only_stale_manifests_of_given_repos(
+    neo4j_session,
+):
+    neo4j_session.run(
+        """
+        CREATE (a:GitHubRepository {id: 'repo-a'})
+        CREATE (b:GitHubRepository {id: 'repo-b'})
+        CREATE (a)-[:HAS_MANIFEST]->(:GitHubDependencyGraphManifest {id: 'a-stale', lastupdated: 1})
+        CREATE (a)-[:HAS_MANIFEST]->(:GitHubDependencyGraphManifest {id: 'a-fresh', lastupdated: 99})
+        CREATE (b)-[:HAS_MANIFEST]->(:GitHubDependencyGraphManifest {id: 'b-stale', lastupdated: 1})
+        """
+    ).consume()
+
+    local_repos._cleanup_repo_manifests(neo4j_session, ["repo-a"], 99)
+
+    remaining = neo4j_session.run(
+        "MATCH (m:GitHubDependencyGraphManifest) RETURN collect(m.id) AS ids"
+    ).single()["ids"]
+    assert sorted(remaining) == ["a-fresh", "b-stale"]

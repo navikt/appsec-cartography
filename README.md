@@ -30,11 +30,14 @@ and unaffected ingestion stages. GitHub API fetches run with four workers by
 default; Neo4j writes stay on the ingestion thread.
 
 Incremental sync preserves existing workflow and dependency subgraphs when a
-repository's push timestamp is unchanged, refreshing cleanup timestamps on
-their nodes and relationships. Secrets, variables, and environments are still
-refreshed for active repositories. Commit queries skip repositories with no
-push in the lookback window. Bookmarks advance only after successful processing;
-incomplete dependency responses remain eligible for retry. A first run without
+repository's push timestamp and default branch are unchanged, refreshing
+cleanup timestamps on their nodes and relationships. Secrets, variables, and
+environments are still refreshed for active repositories, and new secrets
+trigger a workflow refetch so secret references are linked. Commit queries skip
+repositories with no push in the lookback window. Bookmarks advance only after
+the whole run succeeds; failed or incomplete dependency and workflow responses
+keep their existing data and remain eligible for retry. Global repository
+cleanup is skipped when a repository listing is incomplete. A first run without
 compatible bookmarks still performs a full collection.
 
 Use `--no-github-incremental-sync` for a full refresh, and
