@@ -23,7 +23,7 @@ jobs:
           team: appsec
           dockerfile: Dockerfile.neo4j
           image_suffix: neo4j
-      - uses: nais/setup@v1
+      - uses: nais/setup@v1.0.3
         with:
           team: appsec
       - name: Deploy to Nais
