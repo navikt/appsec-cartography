@@ -6,7 +6,7 @@ metadata:
   labels:
     team: appsec
 spec:
-  # Manual runs only during the baseline comparison: February 31 never occurs.
+  # Manual runs only until the local collector is verified: February 31 never occurs.
   # Restore "5 06,18 * * *" afterwards.
   schedule: "0 0 31 2 *"
   concurrencyPolicy: Forbid
@@ -24,7 +24,9 @@ spec:
     - NEO4J_PASSWORD
     - --github-config-env-var
     - GITHUB_CONFIG
-    - --no-fetch-cache
+    - --github-incremental-sync
+    - --github-parallel-workers
+    - "4"
   envFrom:
     - secret: cartography
   env:
