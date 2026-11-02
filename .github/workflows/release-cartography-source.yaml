@@ -24,8 +24,6 @@ jobs:
   build:
     name: Build ${{ inputs.repository }}@${{ inputs.source }}
     runs-on: ubuntu-latest
-    env:
-      WITH_EXTENSIONS: ${{ contains(fromJSON(inputs.targets).*.collector, 'nais') || contains(fromJSON(inputs.targets).*.collector, 'github') }}
     outputs:
       image: ${{ steps.build.outputs.image }}
     steps:
@@ -52,8 +50,8 @@ jobs:
           path: source
           fetch-depth: 0
           persist-credentials: false
-      - name: Test extensions against selected source
-        if: env.WITH_EXTENSIONS == 'true'
+      - name: Test Nais collector against selected source
+        if: contains(fromJSON(inputs.targets).*.collector, 'nais')
         run: |
           pipx run uv export --quiet --directory source --frozen --no-dev --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
           pipx run uv run --no-project --python 3.13 --with '.[test]' --with ./source --with-requirements "$RUNNER_TEMP/requirements.txt" pytest -q
@@ -63,7 +61,7 @@ jobs:
           team: appsec
           dockerfile: Dockerfile.cartography
           docker_context: .
-          build_args: WITH_EXTENSIONS=${{ env.WITH_EXTENSIONS }}
+          build_args: WITH_NAIS=${{ contains(fromJSON(inputs.targets).*.collector, 'nais') }}
           image_suffix: ${{ inputs.source }}
           cache_from: type=gha,scope=cartography-${{ inputs.source }}
           cache_to: type=gha,mode=max,scope=cartography-${{ inputs.source }}
@@ -71,11 +69,11 @@ jobs:
       - name: Smoke-test the published image
         env:
           IMAGE: ${{ steps.build.outputs.image }}
+          WITH_NAIS: ${{ contains(fromJSON(inputs.targets).*.collector, 'nais') }}
         run: |
           docker run --rm "$IMAGE" --help > /dev/null
-          if [ "$WITH_EXTENSIONS" = true ]; then
+          if [ "$WITH_NAIS" = true ]; then
             docker run --rm --entrypoint cartography-nais "$IMAGE" --help > /dev/null
-            docker run --rm --entrypoint cartography-github "$IMAGE" --help > /dev/null
           fi
       - name: Record release
         env:
