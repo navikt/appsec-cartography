@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-from datetime import timedelta
 from functools import partial
 
 import cartography.intel.create_indexes
@@ -23,14 +22,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--neo4j-database")
     parser.add_argument("--github-config-env-var", default="GITHUB_CONFIG")
     parser.add_argument("--github-commit-lookback-days", type=int, default=30)
-    parser.add_argument("--cache-max-age-days", type=float, default=7)
-    parser.add_argument("--manifest-settle-hours", type=float, default=6)
     parser.add_argument(
-        "--no-fetch-cache",
-        action="store_true",
-        help="Run plain upstream GitHub ingestion",
+        "--github-parallel-workers",
+        type=int,
+        default=4,
+        help="Maximum concurrent per-repository GitHub API fetches (default: 4)",
+    )
+    parser.add_argument(
+        "--github-incremental-sync",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Preserve unchanged repository data instead of refetching it",
     )
     args = parser.parse_args(argv)
+    if args.github_parallel_workers < 1:
+        parser.error("--github-parallel-workers must be at least 1")
+    if args.github_commit_lookback_days < 0:
+        parser.error("--github-commit-lookback-days must not be negative")
     password = os.environ.get(args.neo4j_password_env_var)
     if not password:
         parser.error(f"Missing Neo4j password in {args.neo4j_password_env_var}")
@@ -44,9 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         "github",
         partial(
             start_github_ingestion,
-            use_cache=not args.no_fetch_cache,
-            max_age=timedelta(days=args.cache_max_age_days),
-            manifest_settle=timedelta(hours=args.manifest_settle_hours),
+            parallel_workers=args.github_parallel_workers,
+            incremental_sync=args.github_incremental_sync,
         ),
     )
     return run_with_config(

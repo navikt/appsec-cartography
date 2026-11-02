@@ -8,7 +8,8 @@ with our local Nais and GitHub collectors.
 [Build & deploy Cartography](.github/workflows/build-deploy-cartography.yaml)
 runs on deployment configuration changes on `main`, or manually from Actions.
 GCP, Kubernetes, and Nais use the latest stable upstream release; GitHub uses
-upstream `master`. See the workflow matrix for sources and cluster targets,
+the tested upstream `0.143.0` release with a local collector extension.
+See the workflow matrix for sources and cluster targets,
 [Dockerfile.cartography](Dockerfile.cartography) for the build, and [.nais](.nais)
 for deployment settings.
 
@@ -22,15 +23,34 @@ unmodified upstream Cartography. Run `mise install`, then
 Use `uv run --locked --extra test pytest` to test (requires Docker),
 and `uv run --locked cartography-nais --help` for collector options.
 
-The local [GitHub collector](cartography_github) runs as `cartography-github`. It
-runs upstream GitHub ingestion unchanged, but replays cached API responses for
-repositories whose default branch has not moved: file contents (workflows,
-CODEOWNERS, lockfiles) and dependency graph manifests. It also skips commit
-queries for repositories with no push in the lookback window. Upstream still
-transforms, loads, and cleans up every run. The cache lives in Neo4j as
-`AppsecGitHubFetchCache` nodes, expires after about seven days, and is ignored
-when the wrapped upstream code changes. Use `--no-fetch-cache` to run plain
-upstream ingestion.
+The local [GitHub collector](cartography_github) runs as `cartography-github`.
+It extracts the incremental and parallel collection from
+`navikt/cartography@github-module` while reusing upstream transforms, models,
+and unaffected ingestion stages. GitHub API fetches run with four workers by
+default; Neo4j writes stay on the ingestion thread.
+
+Incremental sync preserves existing workflow and dependency subgraphs when a
+repository's push timestamp and default branch are unchanged, refreshing
+cleanup timestamps on their nodes and relationships. Secrets, variables, and
+environments are still refreshed for active repositories, and new secrets
+trigger a workflow refetch so secret references are linked. Commit queries skip
+repositories with no push in the lookback window. Bookmarks advance only after
+the whole run succeeds; failed or incomplete dependency and workflow responses
+keep their existing data and remain eligible for retry. Global repository
+cleanup is skipped when a repository listing is incomplete. A first run without
+compatible bookmarks still performs a full collection.
+
+Use `--no-github-incremental-sync` for a full refresh, and
+`--github-parallel-workers N` to change API concurrency. This is a local
+collector, not a patch of the installed upstream modules. GitHub is pinned
+because the extension uses upstream internal helpers; run the tests against
+the selected source before updating the pin.
+
+Scheduled GitHub runs remain paused pending production verification. Run the
+Naisjob manually after deployment to check runtime, completeness warnings,
+and the logged stage durations before restoring its schedule. The previous
+baseline fetch cache is no longer read or written; existing
+`AppsecGitHubFetchCache` nodes are left untouched.
 
 ### Kubernetes
 
