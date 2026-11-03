@@ -9,7 +9,6 @@ from cartography.client.core.tx import load
 from cartography.client.core.tx import load_matchlinks
 from cartography.graph.job import GraphJob
 from cartography_nais.client import NaisGraphQLClient
-from cartography_nais.models.configuration import NaisSecretReferenceSchema
 from cartography_nais.models.workload import NaisAppSchema
 from cartography_nais.models.workload import NaisAppToActiveDeploymentMatchLink
 from cartography_nais.models.workload import NaisAppToDeploymentMatchLink
@@ -72,10 +71,6 @@ query GetWorkloads($env: String!, $deployments: Int!, $first: Int!, $cursor: Cur
         ... on Application {
           appState: state
           ingresses { url type }
-          instanceGroups {
-            environmentVariables { name source { kind name } }
-            mountedFiles { path source { kind name } }
-          }
           appAuth: authIntegrations {
             __typename
             ... on AuthIntegration { name }
@@ -253,42 +248,6 @@ def transform(
     return apps, list(deployments.values()), app_deployment_links, active_links
 
 
-def transform_secret_references(raw_workloads: list[dict[str, Any]]) -> list[dict]:
-    """Return the secrets each application reads, from its instance groups."""
-    references: dict[str, dict] = {}
-    for w in raw_workloads:
-        team_env = w.get("teamEnvironment") or {}
-        # An application has several instance groups during a rollout.
-        for group in w.get("instanceGroups") or []:
-            for field, entry_key, ref_key in (
-                ("environmentVariables", "name", "env_vars"),
-                ("mountedFiles", "path", "mounted_paths"),
-            ):
-                for entry in group.get(field) or []:
-                    source = entry.get("source") or {}
-                    if source.get("kind") != "SECRET" or not source.get("name"):
-                        continue
-                    ref_id = f"{w['id']}/{source['name']}"
-                    ref = references.setdefault(
-                        ref_id,
-                        {
-                            "id": ref_id,
-                            "name": source["name"],
-                            "app_id": w["id"],
-                            "team_slug": (w.get("team") or {}).get("slug"),
-                            "environment": (team_env.get("environment") or {}).get("name"),
-                            "env_vars": set(),
-                            "mounted_paths": set(),
-                        },
-                    )
-                    if entry.get(entry_key):
-                        ref[ref_key].add(entry[entry_key])
-    for ref in references.values():
-        ref["env_vars"] = sorted(ref["env_vars"])
-        ref["mounted_paths"] = sorted(ref["mounted_paths"])
-    return list(references.values())
-
-
 @timeit
 def load_workloads(
     neo4j_session: neo4j.Session,
@@ -296,21 +255,16 @@ def load_workloads(
     deployments: list[dict],
     app_deployment_links: list[dict],
     active_links: list[dict],
-    secret_references: list[dict],
     tenant_id: str,
     update_tag: int,
 ) -> None:
-    for schema, items in (
-        (NaisAppSchema(), apps),
-        (NaisSecretReferenceSchema(), secret_references),
-    ):
-        load(
-            neo4j_session,
-            schema,
-            items,
-            lastupdated=update_tag,
-            NAIS_TENANT_ID=tenant_id,
-        )
+    load(
+        neo4j_session,
+        NaisAppSchema(),
+        apps,
+        lastupdated=update_tag,
+        NAIS_TENANT_ID=tenant_id,
+    )
     load(
         neo4j_session,
         NaisDeploymentSchema(),
@@ -354,11 +308,7 @@ def cleanup(
             common_job_parameters["NAIS_TENANT_ID"],
             common_job_parameters["UPDATE_TAG"],
         ).run(neo4j_session)
-    for schema in (
-        NaisSecretReferenceSchema(),
-        NaisDeploymentSchema(),
-        NaisAppSchema(),
-    ):
+    for schema in (NaisDeploymentSchema(), NaisAppSchema()):
         GraphJob.from_node_schema(schema, common_job_parameters).run(neo4j_session)
 
 
@@ -376,15 +326,13 @@ def sync(
         _workloads_raw if _workloads_raw is not None else get_workloads(client)
     )
     apps, deployments, app_deployment_links, active_links = transform(raw_workloads)
-    secret_references = transform_secret_references(raw_workloads)
     logger.info(
         "NAIS workloads: %d workloads, %d deployments, %d workload links, "
-        "%d workloads without an active deployment, %d secret references",
+        "%d workloads without an active deployment",
         len(apps),
         len(deployments),
         len(app_deployment_links),
         len(apps) - len(active_links),
-        len(secret_references),
     )
     load_workloads(
         neo4j_session,
@@ -392,7 +340,6 @@ def sync(
         deployments,
         app_deployment_links,
         active_links,
-        secret_references,
         tenant_id,
         update_tag,
     )

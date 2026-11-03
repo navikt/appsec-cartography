@@ -34,36 +34,6 @@ MOCK_WORKLOADS_RAW = [
         "teamEnvironment": TEAM_ENVIRONMENT,
         "image": {"name": "ghcr.io/navikt/my-app", "tag": "abc123", "digest": DIGEST},
         "ingresses": [{"url": "https://my-app.intern.nav.no", "type": "INTERNAL"}],
-        # Two groups, as during a rollout.
-        "instanceGroups": [
-            {
-                "environmentVariables": [
-                    {"name": "NAIS_APP_NAME", "source": {"kind": "NAIS", "name": "my-app"}},
-                    {"name": "LOG_LEVEL", "source": {"kind": "SPEC", "name": "my-app"}},
-                    {"name": "API_KEY", "source": {"kind": "SECRET", "name": "my-app-secrets"}},
-                    {
-                        "name": "AZURE_APP_CLIENT_SECRET",
-                        "source": {"kind": "SECRET", "name": "azure-my-app-1a2b"},
-                    },
-                ],
-                "mountedFiles": [
-                    {
-                        "path": "/var/run/secrets/nais.io/azure/AZURE_APP_CLIENT_SECRET",
-                        "source": {"kind": "SECRET", "name": "azure-my-app-1a2b"},
-                    },
-                    {
-                        "path": "/etc/ssl/ca-bundle.pem",
-                        "source": {"kind": "CONFIG", "name": "ca-bundle-pem"},
-                    },
-                ],
-            },
-            {
-                "environmentVariables": [
-                    {"name": "PASSWORD", "source": {"kind": "SECRET", "name": "my-app-secrets"}},
-                ],
-                "mountedFiles": [],
-            },
-        ],
         "appAuth": [
             {"__typename": "TokenXAuthIntegration", "name": "TokenX"},
             {"__typename": "EntraIDAuthIntegration", "name": "Entra ID"},
