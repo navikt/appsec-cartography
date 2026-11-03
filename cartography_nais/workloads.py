@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 import neo4j
@@ -7,12 +9,38 @@ from cartography.client.core.tx import load
 from cartography.client.core.tx import load_matchlinks
 from cartography.graph.job import GraphJob
 from cartography_nais.client import NaisGraphQLClient
+from cartography_nais.models.configuration import NaisSecretReferenceSchema
 from cartography_nais.models.workload import NaisAppSchema
+from cartography_nais.models.workload import NaisAppToActiveDeploymentMatchLink
+from cartography_nais.models.workload import NaisAppToDeploymentMatchLink
 from cartography_nais.models.workload import NaisDeploymentSchema
 from cartography_nais.models.workload import NaisDeploymentToGitHubUserRel
 from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
+
+DEPLOYMENTS_PER_WORKLOAD = 10
+
+DEPLOYMENT_FRAGMENT = """
+fragment DeploymentFields on Deployment {
+  id
+  createdAt
+  teamSlug
+  environmentName
+  repository
+  deployerUsername
+  commitSha
+  triggerUrl
+  resources(first: 20) {
+    pageInfo { hasNextPage endCursor }
+    nodes { kind name }
+  }
+  statuses(first: 20) {
+    pageInfo { hasNextPage endCursor }
+    nodes { state createdAt }
+  }
+}
+"""
 
 ENVIRONMENTS_QUERY = """
 query GetEnvironments {
@@ -22,87 +50,43 @@ query GetEnvironments {
 }
 """
 
-WORKLOADS_QUERY = """
-query GetWorkloads($env: String!, $first: Int!, $cursor: Cursor, $deploymentLimit: Int!) {
+# Application and Job declare differently typed `state` and `authIntegrations`,
+# so they are aliased per type.
+WORKLOADS_QUERY = (
+    """
+query GetWorkloads($env: String!, $deployments: Int!, $first: Int!, $cursor: Cursor) {
   environment(name: $env) {
     workloads(first: $first, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
+        __typename
+        id
+        name
+        deletionStartedAt
+        team { slug }
+        teamEnvironment { id environment { name } }
+        image { name tag digest }
+        deployments(first: $deployments) {
+          nodes { ...DeploymentFields }
+        }
         ... on Application {
-          __typename
-          id
-          name
           appState: state
-          team { slug }
-          teamEnvironment {
-            gcpProjectID
-            environment { name }
+          ingresses { url type }
+          instanceGroups {
+            environmentVariables { name source { kind name } }
+            mountedFiles { path source { kind name } }
           }
-          image { name tag digest }
-          ingresses { url }
-          instances(first: 50) {
-            nodes {
-              status { state }
-              image {
-                digest
-                workloadReferences {
-                  nodes {
-                    workload {
-                      deployments(first: $deploymentLimit) {
-                        nodes {
-                          id
-                          repository
-                          commitSha
-                          deployerUsername
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          deployments(first: $deploymentLimit) {
-            nodes {
-              id
-              createdAt
-              teamSlug
-              environmentName
-              repository
-              deployerUsername
-              commitSha
-              triggerUrl
-              statuses(first: 1) {
-                nodes { state }
-              }
-            }
+          appAuth: authIntegrations {
+            __typename
+            ... on AuthIntegration { name }
           }
         }
         ... on Job {
-          __typename
-          id
-          name
           jobState: state
-          team { slug }
-          teamEnvironment {
-            gcpProjectID
-            environment { name }
-          }
-          image { name tag digest }
-          deployments(first: $deploymentLimit) {
-            nodes {
-              id
-              createdAt
-              teamSlug
-              environmentName
-              repository
-              deployerUsername
-              commitSha
-              triggerUrl
-              statuses(first: 1) {
-                nodes { state }
-              }
-            }
+          schedule { expression }
+          jobAuth: authIntegrations {
+            __typename
+            ... on AuthIntegration { name }
           }
         }
       }
@@ -110,188 +94,223 @@ query GetWorkloads($env: String!, $first: Int!, $cursor: Cursor, $deploymentLimi
   }
 }
 """
-
+    + DEPLOYMENT_FRAGMENT
+)
 
 def get_environments(client: NaisGraphQLClient) -> list[str]:
     data = client.query(ENVIRONMENTS_QUERY)
     return [environment["name"] for environment in data["environments"]["nodes"]]
 
 
-def get_workloads(
-    client: NaisGraphQLClient,
-    deployment_limit: int = 10,
-) -> list[dict[str, Any]]:
+def _complete_deployment(client: NaisGraphQLClient, deployment: dict) -> dict:
+    for field, selection in (("resources", "kind name"), ("statuses", "state createdAt")):
+        deployment[field] = client.complete_connection(
+            deployment.get(field),
+            node_id=deployment["id"],
+            node_type="Deployment",
+            field=field,
+            selection=selection,
+        )
+    return deployment
+
+
+def get_workloads(client: NaisGraphQLClient) -> list[dict[str, Any]]:
     environments = get_environments(client)
-    logger.info(
-        "NAIS workloads: fetching workloads for %d environments", len(environments)
-    )
+    logger.info("NAIS workloads: fetching %d environments", len(environments))
     workloads = []
-    for idx, env in enumerate(environments, start=1):
+    for env in environments:
         results = client.paginate(
             WORKLOADS_QUERY,
             ["environment", "workloads"],
-            variables={"env": env, "deploymentLimit": deployment_limit},
+            variables={"env": env, "deployments": DEPLOYMENTS_PER_WORKLOAD},
+            page_size=20,
         )
+        for workload in results:
+            # Retention is unbounded; the API returns the newest deployments first.
+            workload["deployments"] = [
+                _complete_deployment(client, d)
+                for d in workload["deployments"]["nodes"]
+            ]
         workloads.extend(results)
-        logger.info(
-            "NAIS workloads: environment %d/%d '%s' — %d workloads (total so far: %d)",
-            idx,
-            len(environments),
-            env,
-            len(results),
-            len(workloads),
-        )
+        logger.info("NAIS workloads: %s has %d workloads", env, len(results))
     return workloads
 
 
-def transform_workloads(
-    raw: list[dict[str, Any]],
-) -> tuple[list[dict], list[dict], list[dict]]:
-    """Return (apps, deployments, image_deployment_links) extracted from raw workload nodes.
-
-    Deployments are fetched inline per workload (most-recent-first).
-    The first deployment per workload whose latest status is SUCCESS is
-    flagged is_active=True; all others are False (kept as read-only metadata).
-
-    has_running_instance reflects Kubernetes reality:
-    - Applications: True if at least one instance reports state RUNNING.
-    - Jobs: always True — jobs are scheduled/triggered workloads that will
-      run eventually, so they are considered perpetually active if they exist
-      in NAIS regardless of their last run state.
-
-    image_deployment_links contains mappings of image digest to deployment ID,
-    extracted from instance-level workloadReferences. These are used to create
-    KubernetesContainer -[:DEPLOYED_BY]-> NaisDeployment edges via analysis jobs.
-    Entries with no digest are omitted.
-    """
-    apps = []
-    all_deployments: list[dict] = []
-    image_deployment_links: list[dict] = []
-    seen_image_deployment_pairs: set[tuple[str, str]] = set()
-
-    for w in raw:
-        team = w.get("team") or {}
-        team_env = w.get("teamEnvironment") or {}
-        env = team_env.get("environment") or {}
-        image = w.get("image") or {}
-        ingress_urls = [i["url"] for i in (w.get("ingresses") or []) if i.get("url")]
-        workload_type = w.get("__typename")
-
-        # Applications: check live Kubernetes instances; Jobs: always active.
-        if workload_type == "Application":
-            instances = (w.get("instances") or {}).get("nodes") or []
-            has_running_instance = any(
-                (i.get("status") or {}).get("state") == "RUNNING" for i in instances
-            )
-        else:
-            has_running_instance = True
-            instances = []
-
-        app_id = w["id"]
-        image_digest = image.get("digest")
-        apps.append(
-            {
-                "id": app_id,
-                "name": w.get("name"),
-                "workload_type": workload_type,
-                "team_slug": team.get("slug"),
-                "environment": env.get("name"),
-                "gcp_project_id": team_env.get("gcpProjectID"),
-                "image_name": image.get("name"),
-                "image_tag": image.get("tag"),
-                "image_digest": image_digest,
-                "state": w.get("appState") or w.get("jobState"),
-                "ingresses": ingress_urls,
-                "has_running_instance": has_running_instance,
-            }
-        )
-
-        # Extract image->deployment provenance from instance workloadReferences.
-        # Each running instance carries the digest of the image it is actually
-        # running and, via workloadReferences, the deployment(s) that produced it.
-        # We deduplicate on (digest, deployment_id) so we don't emit duplicates
-        # when multiple instances share the same image.
-        for inst in instances:
-            inst_image = inst.get("image") or {}
-            inst_digest = inst_image.get("digest")
-            if not inst_digest:
-                continue
-            wl_refs = (inst_image.get("workloadReferences") or {}).get("nodes") or []
-            for ref in wl_refs:
-                workload = ref.get("workload") or {}
-                dep_nodes = (workload.get("deployments") or {}).get("nodes") or []
-                for dep in dep_nodes:
-                    dep_id = dep.get("id")
-                    if not dep_id:
-                        continue
-                    pair = (inst_digest, dep_id)
-                    if pair in seen_image_deployment_pairs:
-                        continue
-                    seen_image_deployment_pairs.add(pair)
-                    image_deployment_links.append(
-                        {
-                            "image_digest": inst_digest,
-                            "deployment_id": dep_id,
-                        }
-                    )
-
-        raw_deps = (w.get("deployments") or {}).get("nodes") or []
-        active_found = False
-        for d in raw_deps:
-            statuses = (d.get("statuses") or {}).get("nodes") or []
-            latest_status = statuses[0]["state"] if statuses else None
-
-            is_active = False
-            if not active_found and latest_status == "SUCCESS":
-                is_active = True
-                active_found = True
-
-            repo = d.get("repository")
-            # Fall back to parent workload team slug if not on the deployment node
-            team_slug = d.get("teamSlug") or team.get("slug")
-            all_deployments.append(
-                {
-                    "id": d["id"],
-                    "created_at": d.get("createdAt"),
-                    "team_slug": team_slug,
-                    "environment_name": d.get("environmentName"),
-                    "repository": repo,
-                    "repository_url": f"https://github.com/{repo}" if repo else None,
-                    "deployer_username": d.get("deployerUsername"),
-                    "commit_sha": d.get("commitSha"),
-                    "trigger_url": d.get("triggerUrl"),
-                    "latest_status": latest_status,
-                    "is_active": is_active,
-                    "app_id": app_id,
-                }
-            )
-
-    return apps, all_deployments, image_deployment_links
+_MISSING_TIMESTAMP = datetime.min.replace(tzinfo=timezone.utc)
 
 
-@timeit
-def load_apps(
-    neo4j_session: neo4j.Session,
-    apps: list[dict],
-    tenant_id: str,
-    update_tag: int,
-) -> None:
-    load(
-        neo4j_session,
-        NaisAppSchema(),
-        apps,
-        lastupdated=update_tag,
-        NAIS_TENANT_ID=tenant_id,
+def _timestamp(value: str | None) -> datetime:
+    # Nais timestamps vary in fractional-second precision, so compare parsed values.
+    return datetime.fromisoformat(value) if value else _MISSING_TIMESTAMP
+
+
+def _latest_status(statuses: list[dict]) -> dict:
+    return max(statuses, key=lambda s: _timestamp(s.get("createdAt")), default={})
+
+
+def _transform_deployment(raw: dict) -> dict:
+    latest = _latest_status(raw.get("statuses") or [])
+    repo = raw.get("repository")
+    return {
+        "id": raw["id"],
+        "created_at": raw.get("createdAt"),
+        "team_slug": raw.get("teamSlug"),
+        "environment_name": raw.get("environmentName"),
+        "repository": repo,
+        "repository_url": f"https://github.com/{repo}" if repo else None,
+        "deployer_username": raw.get("deployerUsername"),
+        "commit_sha": raw.get("commitSha"),
+        "trigger_url": raw.get("triggerUrl"),
+        "latest_status": latest.get("state"),
+        "latest_status_at": latest.get("createdAt"),
+        "resources": [
+            f"{r.get('kind')}/{r.get('name')}" for r in raw.get("resources") or []
+        ],
+    }
+
+
+def _auth_integrations(workload: dict) -> list[str]:
+    integrations = workload.get("appAuth") or workload.get("jobAuth") or []
+    return sorted(
+        f"{i['__typename'].removesuffix('AuthIntegration')}:{i.get('name')}"
+        for i in integrations
     )
 
 
+def transform(
+    raw_workloads: list[dict[str, Any]],
+) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """
+    Return (apps, deployments, app_deployment_links, active_deployment_links).
+
+    The active deployment is the newest successful one among the fetched deployments.
+    """
+    apps = []
+    deployments: dict[str, dict] = {}
+    links: set[tuple[str, str]] = set()
+
+    for w in raw_workloads:
+        workload_type = w["__typename"]
+        team_slug = (w.get("team") or {}).get("slug")
+        team_env = w.get("teamEnvironment") or {}
+        environment = (team_env.get("environment") or {}).get("name")
+        image = w.get("image") or {}
+        schedule = (w.get("schedule") or {}).get("expression")
+        ingresses = w.get("ingresses") or []
+        app_id = w["id"]
+        apps.append(
+            {
+                "id": app_id,
+                "name": w["name"],
+                "workload_type": workload_type,
+                "team_slug": team_slug,
+                "environment": environment,
+                "team_environment_id": team_env.get("id"),
+                "image_name": image.get("name"),
+                "image_tag": image.get("tag"),
+                "image_digest": image.get("digest"),
+                "state": w.get("appState") or w.get("jobState"),
+                "ingresses": [i["url"] for i in ingresses if i.get("url")],
+                "ingress_types": sorted({i["type"] for i in ingresses if i.get("type")}),
+                "auth_integrations": _auth_integrations(w),
+                "schedule": schedule,
+                "deletion_started_at": w.get("deletionStartedAt"),
+                "k8s_deployment_name": (
+                    w["name"] if workload_type == "Application" else None
+                ),
+                # Unscheduled Naisjobs create Jobs directly; they have no stable controller name.
+                "k8s_cronjob_name": w["name"] if schedule else None,
+            }
+        )
+        for d in w.get("deployments") or []:
+            deployments[d["id"]] = _transform_deployment(d)
+            links.add((app_id, d["id"]))
+
+    deployments_by_app: dict[str, list[dict]] = {}
+    for app_id, deployment_id in links:
+        deployments_by_app.setdefault(app_id, []).append(deployments[deployment_id])
+
+    active_links = []
+    for app in apps:
+        app_deployments = sorted(
+            deployments_by_app.get(app["id"], []),
+            key=lambda d: _timestamp(d["created_at"]),
+            reverse=True,
+        )
+        app["latest_deployment_status"] = (
+            app_deployments[0]["latest_status"] if app_deployments else None
+        )
+        active = next(
+            (d for d in app_deployments if d["latest_status"] == "SUCCESS"), None
+        )
+        if active:
+            active_links.append({"app_id": app["id"], "deployment_id": active["id"]})
+
+    app_deployment_links = [
+        {"app_id": app_id, "deployment_id": deployment_id}
+        for app_id, deployment_id in sorted(links)
+    ]
+    return apps, list(deployments.values()), app_deployment_links, active_links
+
+
+def transform_secret_references(raw_workloads: list[dict[str, Any]]) -> list[dict]:
+    """Return the secrets each application reads, from its instance groups."""
+    references: dict[str, dict] = {}
+    for w in raw_workloads:
+        team_env = w.get("teamEnvironment") or {}
+        # An application has several instance groups during a rollout.
+        for group in w.get("instanceGroups") or []:
+            for field, entry_key, ref_key in (
+                ("environmentVariables", "name", "env_vars"),
+                ("mountedFiles", "path", "mounted_paths"),
+            ):
+                for entry in group.get(field) or []:
+                    source = entry.get("source") or {}
+                    if source.get("kind") != "SECRET" or not source.get("name"):
+                        continue
+                    ref_id = f"{w['id']}/{source['name']}"
+                    ref = references.setdefault(
+                        ref_id,
+                        {
+                            "id": ref_id,
+                            "name": source["name"],
+                            "app_id": w["id"],
+                            "team_slug": (w.get("team") or {}).get("slug"),
+                            "environment": (team_env.get("environment") or {}).get("name"),
+                            "env_vars": set(),
+                            "mounted_paths": set(),
+                        },
+                    )
+                    if entry.get(entry_key):
+                        ref[ref_key].add(entry[entry_key])
+    for ref in references.values():
+        ref["env_vars"] = sorted(ref["env_vars"])
+        ref["mounted_paths"] = sorted(ref["mounted_paths"])
+    return list(references.values())
+
+
 @timeit
-def load_deployments(
+def load_workloads(
     neo4j_session: neo4j.Session,
+    apps: list[dict],
     deployments: list[dict],
+    app_deployment_links: list[dict],
+    active_links: list[dict],
+    secret_references: list[dict],
     tenant_id: str,
     update_tag: int,
 ) -> None:
+    for schema, items in (
+        (NaisAppSchema(), apps),
+        (NaisSecretReferenceSchema(), secret_references),
+    ):
+        load(
+            neo4j_session,
+            schema,
+            items,
+            lastupdated=update_tag,
+            NAIS_TENANT_ID=tenant_id,
+        )
     load(
         neo4j_session,
         NaisDeploymentSchema(),
@@ -299,28 +318,24 @@ def load_deployments(
         lastupdated=update_tag,
         NAIS_TENANT_ID=tenant_id,
     )
-
-
-@timeit
-def load_deployer_links(
-    neo4j_session: neo4j.Session,
-    deployments: list[dict],
-    tenant_id: str,
-    update_tag: int,
-) -> None:
-    mapping = [
+    deployer_links = [
         {"deployment_id": d["id"], "deployer_username": d["deployer_username"]}
         for d in deployments
         if d.get("deployer_username")
     ]
-    load_matchlinks(
-        neo4j_session,
-        NaisDeploymentToGitHubUserRel(),
-        mapping,
-        lastupdated=update_tag,
-        _sub_resource_label="NaisTenant",
-        _sub_resource_id=tenant_id,
-    )
+    for rel_schema, mapping in (
+        (NaisAppToDeploymentMatchLink(), app_deployment_links),
+        (NaisAppToActiveDeploymentMatchLink(), active_links),
+        (NaisDeploymentToGitHubUserRel(), deployer_links),
+    ):
+        load_matchlinks(
+            neo4j_session,
+            rel_schema,
+            mapping,
+            lastupdated=update_tag,
+            _sub_resource_label="NaisTenant",
+            _sub_resource_id=tenant_id,
+        )
 
 
 @timeit
@@ -328,16 +343,23 @@ def cleanup(
     neo4j_session: neo4j.Session,
     common_job_parameters: dict[str, Any],
 ) -> None:
-    GraphJob.from_node_schema(NaisAppSchema(), common_job_parameters).run(neo4j_session)
-    GraphJob.from_node_schema(NaisDeploymentSchema(), common_job_parameters).run(
-        neo4j_session
-    )
-    GraphJob.from_matchlink(
+    for rel_schema in (
+        NaisAppToDeploymentMatchLink(),
+        NaisAppToActiveDeploymentMatchLink(),
         NaisDeploymentToGitHubUserRel(),
-        "NaisTenant",
-        common_job_parameters["NAIS_TENANT_ID"],
-        common_job_parameters["UPDATE_TAG"],
-    ).run(neo4j_session)
+    ):
+        GraphJob.from_matchlink(
+            rel_schema,
+            "NaisTenant",
+            common_job_parameters["NAIS_TENANT_ID"],
+            common_job_parameters["UPDATE_TAG"],
+        ).run(neo4j_session)
+    for schema in (
+        NaisSecretReferenceSchema(),
+        NaisDeploymentSchema(),
+        NaisAppSchema(),
+    ):
+        GraphJob.from_node_schema(schema, common_job_parameters).run(neo4j_session)
 
 
 @timeit
@@ -347,24 +369,32 @@ def sync(
     tenant_id: str,
     update_tag: int,
     common_job_parameters: dict[str, Any],
-    deployment_limit: int = 10,
     _workloads_raw: list[dict[str, Any]] | None = None,
 ) -> None:
-    logger.info("Syncing NAIS workloads")
+    logger.info("Syncing NAIS workloads and deployments")
     raw_workloads = (
-        _workloads_raw
-        if _workloads_raw is not None
-        else get_workloads(client, deployment_limit)
+        _workloads_raw if _workloads_raw is not None else get_workloads(client)
     )
-    apps, deployments, image_deployment_links = transform_workloads(raw_workloads)
+    apps, deployments, app_deployment_links, active_links = transform(raw_workloads)
+    secret_references = transform_secret_references(raw_workloads)
     logger.info(
-        "NAIS workloads: %d workloads, %d deployments, %d image-deployment links to load",
+        "NAIS workloads: %d workloads, %d deployments, %d workload links, "
+        "%d workloads without an active deployment, %d secret references",
         len(apps),
         len(deployments),
-        len(image_deployment_links),
+        len(app_deployment_links),
+        len(apps) - len(active_links),
+        len(secret_references),
     )
-    load_apps(neo4j_session, apps, tenant_id, update_tag)
-    load_deployments(neo4j_session, deployments, tenant_id, update_tag)
-    load_deployer_links(neo4j_session, deployments, tenant_id, update_tag)
+    load_workloads(
+        neo4j_session,
+        apps,
+        deployments,
+        app_deployment_links,
+        active_links,
+        secret_references,
+        tenant_id,
+        update_tag,
+    )
     cleanup(neo4j_session, common_job_parameters)
     logger.info("NAIS workloads sync complete")

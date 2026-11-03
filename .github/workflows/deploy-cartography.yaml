@@ -7,7 +7,7 @@ on:
         description: Collector to deploy
         type: choice
         required: true
-        options: [gcp, k8s, nais, github]
+        options: [gcp, k8s, nais, github, link]
       image:
         description: Existing image reference from a release summary
         type: string

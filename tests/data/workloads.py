@@ -1,146 +1,137 @@
-"""Mock data for NAIS workloads and deployments tests."""
+"""Mock Nais workloads in the shape returned by cartography_nais.workloads.get_workloads()."""
+
+DIGEST = "sha256:aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa1111bbbb2222"
+
+TEAM_ENVIRONMENT = {
+    "id": "teamenv-alpha-prod-gcp",
+    "environment": {"name": "prod-gcp"},
+}
+
+
+def _deployment(id, created_at, statuses, repository=None, deployer=None, sha=None):
+    return {
+        "id": id,
+        "createdAt": created_at,
+        "teamSlug": "team-alpha",
+        "environmentName": "prod-gcp",
+        "repository": repository,
+        "deployerUsername": deployer,
+        "commitSha": sha,
+        "triggerUrl": None,
+        "resources": [],
+        "statuses": statuses,
+    }
+
 
 MOCK_WORKLOADS_RAW = [
     {
         "__typename": "Application",
         "id": "app-1",
         "name": "my-app",
-        "appState": "NAIS_APPLICATION_STATE_RUNNING",
+        "deletionStartedAt": None,
+        "appState": "RUNNING",
         "team": {"slug": "team-alpha"},
-        "teamEnvironment": {
-            "gcpProjectID": "my-gcp-project",
-            "environment": {"name": "prod"},
-        },
-        "image": {
-            "name": "ghcr.io/navikt/my-app",
-            "tag": "abc123",
-            "digest": "sha256:aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa1111bbbb2222",
-        },
-        "ingresses": [{"url": "https://my-app.intern.nav.no"}],
-        # One running instance — Kubernetes confirms the app is live.
-        "instances": {
-            "nodes": [
-                {
-                    "status": {"state": "RUNNING"},
-                    "image": {
-                        "digest": "sha256:aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa1111bbbb2222",
-                        "workloadReferences": {
-                            "nodes": [
-                                {
-                                    "workload": {
-                                        "deployments": {
-                                            "nodes": [
-                                                {
-                                                    "id": "deploy-1",
-                                                    "repository": "navikt/my-app",
-                                                    "commitSha": "abc123def456",
-                                                    "deployerUsername": "alice",
-                                                }
-                                            ]
-                                        }
-                                    }
-                                }
-                            ]
-                        },
+        "teamEnvironment": TEAM_ENVIRONMENT,
+        "image": {"name": "ghcr.io/navikt/my-app", "tag": "abc123", "digest": DIGEST},
+        "ingresses": [{"url": "https://my-app.intern.nav.no", "type": "INTERNAL"}],
+        # Two groups, as during a rollout.
+        "instanceGroups": [
+            {
+                "environmentVariables": [
+                    {"name": "NAIS_APP_NAME", "source": {"kind": "NAIS", "name": "my-app"}},
+                    {"name": "LOG_LEVEL", "source": {"kind": "SPEC", "name": "my-app"}},
+                    {"name": "API_KEY", "source": {"kind": "SECRET", "name": "my-app-secrets"}},
+                    {
+                        "name": "AZURE_APP_CLIENT_SECRET",
+                        "source": {"kind": "SECRET", "name": "azure-my-app-1a2b"},
                     },
-                },
-            ]
-        },
-        "deployments": {
-            "nodes": [
-                {
-                    # Most recent — SUCCESS → is_active=True
-                    "id": "deploy-1",
-                    "createdAt": "2024-06-01T12:00:00Z",
-                    "teamSlug": "team-alpha",
-                    "environmentName": "prod",
-                    "repository": "navikt/my-app",
-                    "deployerUsername": "alice",
-                    "commitSha": "abc123def456",
-                    "triggerUrl": "https://github.com/navikt/my-app/actions/runs/123",
-                    "statuses": {"nodes": [{"state": "SUCCESS"}]},
-                },
-                {
-                    # Older deploy — FAILURE → is_active=False
-                    "id": "deploy-old",
-                    "createdAt": "2024-05-30T12:00:00Z",
-                    "teamSlug": "team-alpha",
-                    "environmentName": "prod",
-                    "repository": "navikt/my-app",
-                    "deployerUsername": "bob",
-                    "commitSha": "oldhash123",
-                    "triggerUrl": None,
-                    "statuses": {"nodes": [{"state": "FAILURE"}]},
-                },
-            ]
-        },
+                ],
+                "mountedFiles": [
+                    {
+                        "path": "/var/run/secrets/nais.io/azure/AZURE_APP_CLIENT_SECRET",
+                        "source": {"kind": "SECRET", "name": "azure-my-app-1a2b"},
+                    },
+                    {
+                        "path": "/etc/ssl/ca-bundle.pem",
+                        "source": {"kind": "CONFIG", "name": "ca-bundle-pem"},
+                    },
+                ],
+            },
+            {
+                "environmentVariables": [
+                    {"name": "PASSWORD", "source": {"kind": "SECRET", "name": "my-app-secrets"}},
+                ],
+                "mountedFiles": [],
+            },
+        ],
+        "appAuth": [
+            {"__typename": "TokenXAuthIntegration", "name": "TokenX"},
+            {"__typename": "EntraIDAuthIntegration", "name": "Entra ID"},
+        ],
+        # Unordered on purpose: the API does not document the order.
+        "deployments": [
+            _deployment(
+                "deploy-old",
+                "2024-05-30T12:00:00Z",
+                [{"state": "SUCCESS", "createdAt": "2024-05-30T12:01:00Z"}],
+                "navikt/my-app",
+                "bob",
+                "oldhash123",
+            ),
+            _deployment(
+                "deploy-1",
+                "2024-06-01T12:00:00Z",
+                [
+                    {"state": "SUCCESS", "createdAt": "2024-06-01T12:02:00Z"},
+                    {"state": "IN_PROGRESS", "createdAt": "2024-06-01T12:01:00Z"},
+                ],
+                "navikt/my-app",
+                "alice",
+                "abc123def456",
+            ),
+        ],
     },
     {
-        # Application with no running instances — should not get ACTIVE_DEPLOYMENT.
+        # Newest deployment failed; the previous successful one is still active.
         "__typename": "Application",
         "id": "app-2",
-        "name": "my-stopped-app",
-        "appState": "NAIS_APPLICATION_STATE_FAILING",
+        "name": "my-failing-app",
+        "deletionStartedAt": None,
+        "appState": "NOT_RUNNING",
         "team": {"slug": "team-alpha"},
-        "teamEnvironment": {
-            "gcpProjectID": "my-gcp-project",
-            "environment": {"name": "prod"},
-        },
-        "image": {
-            "name": "ghcr.io/navikt/my-stopped-app",
-            "tag": "xyz789",
-            "digest": None,
-        },
+        "teamEnvironment": TEAM_ENVIRONMENT,
+        "image": {"name": "ghcr.io/navikt/my-failing-app", "tag": "xyz789", "digest": None},
         "ingresses": [],
-        # No running instances — app is not live in Kubernetes.
-        "instances": {"nodes": []},
-        "deployments": {
-            "nodes": [
-                {
-                    "id": "deploy-3",
-                    "createdAt": "2024-06-03T08:00:00Z",
-                    "teamSlug": "team-alpha",
-                    "environmentName": "prod",
-                    "repository": "navikt/my-stopped-app",
-                    "deployerUsername": "carol",
-                    "commitSha": "xyz789abc",
-                    "triggerUrl": None,
-                    "statuses": {"nodes": [{"state": "SUCCESS"}]},
-                },
-            ]
-        },
+        "appAuth": [],
+        "deployments": [
+            _deployment(
+                "deploy-3",
+                "2024-06-03T08:00:00Z",
+                [{"state": "FAILURE", "createdAt": "2024-06-03T08:05:00Z"}],
+                "navikt/my-failing-app",
+                "carol",
+            ),
+            _deployment(
+                "deploy-4",
+                "2024-06-02T08:00:00Z",
+                [{"state": "SUCCESS", "createdAt": "2024-06-02T08:05:00Z"}],
+                "navikt/my-failing-app",
+                "carol",
+            ),
+        ],
     },
     {
         "__typename": "Job",
         "id": "job-1",
         "name": "my-job",
-        "jobState": "NAIS_JOB_STATE_RUNNING",
+        "deletionStartedAt": None,
+        "jobState": "COMPLETED",
         "team": {"slug": "team-alpha"},
-        "teamEnvironment": {
-            "gcpProjectID": "my-gcp-project",
-            "environment": {"name": "prod"},
-        },
-        "image": {
-            "name": "ghcr.io/navikt/my-job",
-            "tag": "def456",
-            "digest": None,
-        },
-        # Jobs do not have an instances field — always considered active.
-        "deployments": {
-            "nodes": [
-                {
-                    # Only deployment, no status → is_active=False
-                    "id": "deploy-2",
-                    "createdAt": "2024-06-02T10:00:00Z",
-                    "teamSlug": "team-alpha",
-                    "environmentName": "prod",
-                    "repository": None,
-                    "deployerUsername": None,
-                    "commitSha": None,
-                    "triggerUrl": None,
-                    "statuses": {"nodes": []},
-                },
-            ]
-        },
+        "teamEnvironment": TEAM_ENVIRONMENT,
+        "image": {"name": "ghcr.io/navikt/my-job", "tag": "def456", "digest": None},
+        "schedule": {"expression": "0 3 * * *"},
+        "jobAuth": [{"__typename": "MaskinportenAuthIntegration", "name": "Maskinporten"}],
+        # No status yet: no active deployment.
+        "deployments": [_deployment("deploy-2", "2024-06-02T10:00:00Z", [])],
     },
 ]

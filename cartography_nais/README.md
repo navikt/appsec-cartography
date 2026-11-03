@@ -1,0 +1,46 @@
+# Nais collector
+
+Runs as `cartography-nais` alongside unmodified upstream Cartography. It ingests
+only what the native modules cannot see. Kubernetes, GCP and GitHub resources
+come from their upstream modules, and the collector links to them.
+
+## Graph
+
+- `NaisTeam` with `HAS_MEMBER {role}` to `NaisMember`, and links to its Entra ID
+  group, GitHub team and Google group.
+- `NaisTeamEnvironment` per team and environment, linked to the team's
+  `KubernetesNamespace` in that cluster and to its `GCPProject`.
+- `NaisApp` for each Application and Naisjob, with state, ingresses and auth
+  integrations, linked with `MANAGES` to its `KubernetesDeployment` or
+  `KubernetesCronJob`. Unscheduled Naisjobs are not linked yet.
+- `NaisDeployment` for the 10 newest deploy events per workload, with
+  repository, commit, deployer and latest status. Kubernetes has no deploy
+  provenance, so these are kept for traceability. `ACTIVE_DEPLOYMENT` points to
+  the newest successful one.
+- `NaisSecret` and `NaisConfig` with key names, last modifier and the workloads
+  that use them. Values are never requested.
+
+`NaisMember` is a `UserAccount` with `email` and `normalized_email`. The nav.no
+address identifies the same person across modules, so the upstream ontology
+links it to `User` once a users source is configured. Its `google_user_id` (Nais
+`externalID`) links it with `MAPS_TO` to `GoogleWorkspaceUser`.
+
+## Secrets
+
+The Kubernetes [cluster role](../.nais/cartography-clusterrole.yaml) never
+grants `secrets`, because listing secrets exposes their values. Secret metadata
+comes from the Nais API instead.
+
+`NaisSecret` covers only secrets that teams manage. Each application's running
+instances also report every secret they read, including secrets that Nais
+operators inject (for example `azure-<app>-<hash>` for Entra ID). These become
+`NaisSecretReference` nodes with the environment variable names and file paths,
+linked by `HAS_SECRET_REFERENCE` from the `NaisApp`. A reference to a
+team-managed secret has `RESOLVES_TO` to its `NaisSecret`; one without it was
+injected by the platform. Naisjobs don't report this.
+
+## Development
+
+Run `mise install`, then `uv sync --locked --extra test`. Test with
+`uv run --locked --extra test pytest` (requires Docker), and see
+`uv run --locked cartography-nais --help` for options.

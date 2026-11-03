@@ -35,6 +35,7 @@ jobs:
             targets:
               - {collector: gcp, cluster: prod-gcp}
               - {collector: nais, cluster: prod-gcp}
+              - {collector: link, cluster: prod-gcp}
               - {collector: k8s, cluster: dev-fss}
               - {collector: k8s, cluster: dev-gcp}
               - {collector: k8s, cluster: prod-fss}

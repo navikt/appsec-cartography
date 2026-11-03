@@ -4,6 +4,7 @@ import pytest
 from cartography.config import Config
 
 import cartography_nais
+from tests.data.configuration import MOCK_CONFIGURATION_RAW
 from tests.data.teams import MOCK_TEAMS_RAW
 from tests.data.workloads import MOCK_WORKLOADS_RAW
 from tests.util import check_nodes
@@ -16,9 +17,10 @@ def test_extracted_collector_runs_with_upstream_and_packaged_queries(
     token_file.write_text("test-token")
     monkeypatch.setattr(cartography_nais.teams, "get", lambda client: MOCK_TEAMS_RAW)
     monkeypatch.setattr(
-        cartography_nais.workloads,
-        "get_workloads",
-        lambda client, deployment_limit: MOCK_WORKLOADS_RAW,
+        cartography_nais.workloads, "get_workloads", lambda client: MOCK_WORKLOADS_RAW
+    )
+    monkeypatch.setattr(
+        cartography_nais.configuration, "get", lambda client: MOCK_CONFIGURATION_RAW
     )
     cartography_nais.start_nais_ingestion(
         neo4j_session,
@@ -27,8 +29,12 @@ def test_extracted_collector_runs_with_upstream_and_packaged_queries(
         token_path=str(token_file),
     )
     assert len(check_nodes(neo4j_session, "NaisTeam", ["id"])) == 2
+    assert len(check_nodes(neo4j_session, "NaisTeamEnvironment", ["id"])) == 2
     assert len(check_nodes(neo4j_session, "NaisApp", ["id"])) == 3
-    assert len(check_nodes(neo4j_session, "NaisDeployment", ["id"])) == 4
+    assert len(check_nodes(neo4j_session, "NaisDeployment", ["id"])) == 5
+    assert len(check_nodes(neo4j_session, "NaisSecret", ["id"])) == 1
+    assert len(check_nodes(neo4j_session, "NaisConfig", ["id"])) == 1
+    assert len(check_nodes(neo4j_session, "NaisSecretReference", ["id"])) == 2
 
 
 def test_invalid_token_fails_before_writing_graph_data(tmp_path):
