@@ -23,6 +23,21 @@ def test_queries_never_request_values():
     assert "viewSecretValues" not in query
     assert not re.search(r"\bvalue\b", query)
     assert "values { name }" in query
+    workloads_query = cartography_nais.workloads.WORKLOADS_QUERY
+    assert not re.search(r"\b(value|content)\b", workloads_query)
+
+
+def test_transform_secret_references_keeps_only_secret_sources():
+    refs = cartography_nais.workloads.transform_secret_references(
+        tests.data.workloads.MOCK_WORKLOADS_RAW
+    )
+    by_name = {r["name"]: r for r in refs}
+    assert set(by_name) == {"my-app-secrets", "azure-my-app-1a2b"}
+    # Merged across instance groups.
+    assert by_name["my-app-secrets"]["env_vars"] == ["API_KEY", "PASSWORD"]
+    assert by_name["azure-my-app-1a2b"]["mounted_paths"] == [
+        "/var/run/secrets/nais.io/azure/AZURE_APP_CLIENT_SECRET"
+    ]
 
 
 def test_transform_keeps_only_key_names():
@@ -58,3 +73,10 @@ def test_load_configuration_links_environment_workloads_and_modifier(neo4j_sessi
     assert check_rels(
         neo4j_session, "NaisSecret", "id", "NaisMember", "id", "LAST_MODIFIED_BY"
     ) == {("secret-1", "user-1")}
+    assert check_rels(
+        neo4j_session, "NaisApp", "id", "NaisSecretReference", "name", "HAS_SECRET_REFERENCE"
+    ) == {("app-1", "my-app-secrets"), ("app-1", "azure-my-app-1a2b")}
+    # Only the team-managed secret resolves; the operator secret has no NaisSecret.
+    assert check_rels(
+        neo4j_session, "NaisSecretReference", "name", "NaisSecret", "id", "RESOLVES_TO"
+    ) == {("my-app-secrets", "secret-1")}

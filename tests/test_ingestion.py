@@ -34,6 +34,7 @@ def test_extracted_collector_runs_with_upstream_and_packaged_queries(
     assert len(check_nodes(neo4j_session, "NaisDeployment", ["id"])) == 5
     assert len(check_nodes(neo4j_session, "NaisSecret", ["id"])) == 1
     assert len(check_nodes(neo4j_session, "NaisConfig", ["id"])) == 1
+    assert len(check_nodes(neo4j_session, "NaisSecretReference", ["id"])) == 2
 
 
 def test_invalid_token_fails_before_writing_graph_data(tmp_path):

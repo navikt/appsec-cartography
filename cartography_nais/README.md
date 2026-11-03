@@ -31,6 +31,14 @@ The Kubernetes [cluster role](../.nais/cartography-clusterrole.yaml) never
 grants `secrets`, because listing secrets exposes their values. Secret metadata
 comes from the Nais API instead.
 
+`NaisSecret` covers only secrets that teams manage. Each application's running
+instances also report every secret they read, including secrets that Nais
+operators inject (for example `azure-<app>-<hash>` for Entra ID). These become
+`NaisSecretReference` nodes with the environment variable names and file paths,
+linked by `HAS_SECRET_REFERENCE` from the `NaisApp`. A reference to a
+team-managed secret has `RESOLVES_TO` to its `NaisSecret`; one without it was
+injected by the platform. Naisjobs don't report this.
+
 ## Development
 
 Run `mise install`, then `uv sync --locked --extra test`. Test with

@@ -70,6 +70,22 @@ class NaisSecretToAppRel(_ToAppRel):
 
 
 @dataclass(frozen=True)
+# (:NaisSecretReference)-[:RESOLVES_TO]->(:NaisSecret)
+class NaisSecretToReferenceRel(CartographyRelSchema):
+    target_node_label: str = "NaisSecretReference"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {
+            "name": PropertyRef("name"),
+            "team_slug": PropertyRef("team_slug"),
+            "environment": PropertyRef("environment"),
+        },
+    )
+    direction: LinkDirection = LinkDirection.INWARD
+    rel_label: str = "RESOLVES_TO"
+    properties: NaisRelProperties = NaisRelProperties()
+
+
+@dataclass(frozen=True)
 class NaisSecretSchema(CartographyNodeSchema):
     label: str = "NaisSecret"
     properties: NaisConfigurationNodeProperties = NaisConfigurationNodeProperties()
@@ -79,6 +95,7 @@ class NaisSecretSchema(CartographyNodeSchema):
             NaisSecretToTeamEnvironmentRel(),
             NaisSecretToAppRel(),
             NaisConfigurationToMemberRel(),
+            NaisSecretToReferenceRel(),
         ]
     )
 
@@ -106,4 +123,40 @@ class NaisConfigSchema(CartographyNodeSchema):
             NaisConfigToAppRel(),
             NaisConfigurationToMemberRel(),
         ]
+    )
+
+
+# A Kubernetes secret an application reads, as reported by its running instances.
+# This includes secrets injected by Nais operators, which the Team.secrets API omits.
+# References without RESOLVES_TO are not team-managed.
+@dataclass(frozen=True)
+class NaisSecretReferenceNodeProperties(CartographyNodeProperties):
+    id: PropertyRef = PropertyRef("id")
+    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
+    name: PropertyRef = PropertyRef("name", extra_index=True)
+    team_slug: PropertyRef = PropertyRef("team_slug", extra_index=True)
+    environment: PropertyRef = PropertyRef("environment", extra_index=True)
+    env_vars: PropertyRef = PropertyRef("env_vars")
+    mounted_paths: PropertyRef = PropertyRef("mounted_paths")
+
+
+@dataclass(frozen=True)
+# (:NaisApp)-[:HAS_SECRET_REFERENCE]->(:NaisSecretReference)
+class NaisSecretReferenceToAppRel(CartographyRelSchema):
+    target_node_label: str = "NaisApp"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {"id": PropertyRef("app_id")},
+    )
+    direction: LinkDirection = LinkDirection.INWARD
+    rel_label: str = "HAS_SECRET_REFERENCE"
+    properties: NaisRelProperties = NaisRelProperties()
+
+
+@dataclass(frozen=True)
+class NaisSecretReferenceSchema(CartographyNodeSchema):
+    label: str = "NaisSecretReference"
+    properties: NaisSecretReferenceNodeProperties = NaisSecretReferenceNodeProperties()
+    sub_resource_relationship: NaisTenantRel = NaisTenantRel()
+    other_relationships: OtherRelationships = OtherRelationships(
+        [NaisSecretReferenceToAppRel()]
     )
