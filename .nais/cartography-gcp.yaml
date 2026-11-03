@@ -21,7 +21,7 @@ spec:
     - --neo4j-password-env-var
     - NEO4J_PASSWORD
     - --selected-modules
-    - create-indexes,gcp,analysis
+    - create-indexes,gcp
   envFrom:
     - secret: neo4j
   env:

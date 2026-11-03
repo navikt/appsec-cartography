@@ -75,3 +75,53 @@ def test_missing_environment_data_cannot_trigger_empty_workload_cleanup(data):
     client.query.return_value = data
     with pytest.raises((KeyError, TypeError)):
         get_environments(client)
+
+
+def test_complete_connection_returns_inline_nodes_without_requests():
+    client = Mock(spec=NaisGraphQLClient)
+    connection = {"nodes": [{"id": "a"}], "pageInfo": {"hasNextPage": False}}
+    assert NaisGraphQLClient.complete_connection(
+        client, connection, node_id="x", node_type="Team", field="members", selection="id"
+    ) == [{"id": "a"}]
+    client.paginate.assert_not_called()
+
+
+def test_complete_connection_fetches_remaining_pages_from_cursor(tmp_path):
+    token_file = tmp_path / "token"
+    token_file.write_text("test-token")
+    client = NaisGraphQLClient(str(token_file), "https://nais.example/graphql")
+    client._session.post = Mock()
+    client._session.post.return_value.json.return_value = {
+        "data": {
+            "node": {
+                "members": {
+                    "nodes": [{"id": "b"}],
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                }
+            }
+        }
+    }
+    connection = {
+        "nodes": [{"id": "a"}],
+        "pageInfo": {"hasNextPage": True, "endCursor": "c1"},
+    }
+    nodes = client.complete_connection(
+        connection, node_id="team-1", node_type="Team", field="members", selection="id"
+    )
+    assert nodes == [{"id": "a"}, {"id": "b"}]
+    sent = client._session.post.call_args.kwargs["json"]
+    assert "... on Team" in sent["query"]
+    assert sent["variables"]["id"] == "team-1"
+    assert sent["variables"]["cursor"] == "c1"
+
+
+@pytest.mark.parametrize(
+    "connection",
+    [None, {"nodes": []}, {"nodes": [], "pageInfo": {"hasNextPage": True}}],
+)
+def test_complete_connection_rejects_invalid_connections(connection):
+    client = Mock(spec=NaisGraphQLClient)
+    with pytest.raises(RuntimeError):
+        NaisGraphQLClient.complete_connection(
+            client, connection, node_id="x", node_type="Team", field="members", selection="id"
+        )

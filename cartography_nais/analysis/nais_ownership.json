@@ -2,8 +2,8 @@
     "name": "NAIS ownership analysis",
     "statements": [
         {
-            "__comment__": "NaisTeam RESPONSIBLE_FOR KubernetesPod via NaisApp -> KubernetesNamespace",
-            "query": "MATCH (t:NaisTeam)-[:HAS_APP]->(a:NaisApp)-[:RUNS_IN]->(ns:KubernetesNamespace)<-[:CONTAINS]-(pod:KubernetesPod) MERGE (t)-[r:RESPONSIBLE_FOR]->(pod) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
+            "__comment__": "NaisTeam RESPONSIBLE_FOR KubernetesPod in the team namespace of each cluster",
+            "query": "MATCH (t:NaisTeam)-[:HAS_ENVIRONMENT]->(:NaisTeamEnvironment)-[:HAS_NAMESPACE]->(:KubernetesNamespace)-[:CONTAINS]->(pod:KubernetesPod) MERGE (t)-[r:RESPONSIBLE_FOR]->(pod) ON CREATE SET r.firstseen = timestamp() SET r.lastupdated = $UPDATE_TAG",
             "iterative": false
         },
         {

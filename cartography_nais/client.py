@@ -147,3 +147,58 @@ class NaisGraphQLClient:
             variables["cursor"] = page_info["endCursor"]
 
         return nodes
+
+    def complete_connection(
+        self,
+        connection: Any,
+        *,
+        node_id: str,
+        node_type: str,
+        field: str,
+        selection: str,
+        fragments: str = "",
+        page_size: int = 100,
+    ) -> list[Any]:
+        """
+        Return every node of a nested connection, fetching remaining pages via `node(id:)`.
+
+        :param connection: The nested connection from the parent response.
+        :param node_id: Nais ID of the parent object that owns the connection.
+        :param node_type: GraphQL type of the parent, e.g. "Team" or "Deployment".
+        :param field: Connection field on the parent, e.g. "members".
+        :param selection: Selection set for each connection node.
+        :param fragments: Fragment definitions referenced by `selection`.
+        """
+        if not isinstance(connection, dict):
+            raise RuntimeError(f"Nais response is missing {node_type}.{field}")
+        nodes = connection.get("nodes")
+        page_info = connection.get("pageInfo")
+        if not isinstance(nodes, list) or not isinstance(page_info, dict):
+            raise RuntimeError(
+                f"Nais response has invalid pagination for {node_type}.{field}"
+            )
+        if page_info.get("hasNextPage") is not True:
+            return list(nodes)
+        if not page_info.get("endCursor"):
+            raise RuntimeError(
+                f"Nais response has invalid cursor for {node_type}.{field}"
+            )
+        query = f"""
+query CompleteConnection($id: ID!, $first: Int!, $cursor: Cursor) {{
+  node(id: $id) {{
+    ... on {node_type} {{
+      {field}(first: $first, after: $cursor) {{
+        pageInfo {{ hasNextPage endCursor }}
+        nodes {{ {selection} }}
+      }}
+    }}
+  }}
+}}
+{fragments}
+"""
+        return list(nodes) + self.paginate(
+            query,
+            ["node", field],
+            variables={"id": node_id, "cursor": page_info["endCursor"]},
+            page_size=page_size,
+        )

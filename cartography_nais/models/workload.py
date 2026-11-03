@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from cartography.models.core.common import PropertyRef
 from cartography.models.core.nodes import CartographyNodeProperties
 from cartography.models.core.nodes import CartographyNodeSchema
-from cartography.models.core.relationships import CartographyRelProperties
 from cartography.models.core.relationships import CartographyRelSchema
 from cartography.models.core.relationships import LinkDirection
 from cartography.models.core.relationships import make_source_node_matcher
@@ -11,9 +10,12 @@ from cartography.models.core.relationships import make_target_node_matcher
 from cartography.models.core.relationships import OtherRelationships
 from cartography.models.core.relationships import SourceNodeMatcher
 from cartography.models.core.relationships import TargetNodeMatcher
+from cartography_nais.models.team import NaisMatchLinkRelProperties
+from cartography_nais.models.team import NaisRelProperties
+from cartography_nais.models.team import NaisTenantRel
 
 # ---------------------------------------------------------------------------
-# NaisApp (Application + Job workloads)
+# NaisApp: the desired Nais workload (Application or Naisjob)
 # ---------------------------------------------------------------------------
 
 
@@ -22,38 +24,20 @@ class NaisAppNodeProperties(CartographyNodeProperties):
     id: PropertyRef = PropertyRef("id")
     lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
     name: PropertyRef = PropertyRef("name", extra_index=True)
-    workload_type: PropertyRef = PropertyRef("workload_type")  # "Application" or "Job"
+    workload_type: PropertyRef = PropertyRef("workload_type")  # Application | Job
     team_slug: PropertyRef = PropertyRef("team_slug", extra_index=True)
     environment: PropertyRef = PropertyRef("environment", extra_index=True)
-    gcp_project_id: PropertyRef = PropertyRef("gcp_project_id")
+    # Desired image from the Nais manifest; the observed image comes from Kubernetes.
     image_name: PropertyRef = PropertyRef("image_name")
     image_tag: PropertyRef = PropertyRef("image_tag")
     image_digest: PropertyRef = PropertyRef("image_digest")
     state: PropertyRef = PropertyRef("state")
     ingresses: PropertyRef = PropertyRef("ingresses")
-    has_running_instance: PropertyRef = PropertyRef("has_running_instance")
-
-
-@dataclass(frozen=True)
-class NaisAppToTenantRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
-
-
-@dataclass(frozen=True)
-# (:NaisApp)<-[:RESOURCE]-(:NaisTenant)
-class NaisAppToTenantRel(CartographyRelSchema):
-    target_node_label: str = "NaisTenant"
-    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
-        {"id": PropertyRef("NAIS_TENANT_ID", set_in_kwargs=True)},
-    )
-    direction: LinkDirection = LinkDirection.INWARD
-    rel_label: str = "RESOURCE"
-    properties: NaisAppToTenantRelProperties = NaisAppToTenantRelProperties()
-
-
-@dataclass(frozen=True)
-class NaisAppToTeamRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
+    ingress_types: PropertyRef = PropertyRef("ingress_types")
+    auth_integrations: PropertyRef = PropertyRef("auth_integrations")
+    schedule: PropertyRef = PropertyRef("schedule")
+    deletion_started_at: PropertyRef = PropertyRef("deletion_started_at")
+    latest_deployment_status: PropertyRef = PropertyRef("latest_deployment_status")
 
 
 @dataclass(frozen=True)
@@ -65,44 +49,70 @@ class NaisAppToTeamRel(CartographyRelSchema):
     )
     direction: LinkDirection = LinkDirection.INWARD
     rel_label: str = "HAS_APP"
-    properties: NaisAppToTeamRelProperties = NaisAppToTeamRelProperties()
+    properties: NaisRelProperties = NaisRelProperties()
 
 
 @dataclass(frozen=True)
-class NaisAppToKubernetesNamespaceRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
-
-
-@dataclass(frozen=True)
-# (:NaisApp)-[:RUNS_IN]->(:KubernetesNamespace)
-# Matched by namespace.name = team slug (NAIS convention)
-class NaisAppToKubernetesNamespaceRel(CartographyRelSchema):
-    target_node_label: str = "KubernetesNamespace"
+# (:NaisTeamEnvironment)-[:HAS_APP]->(:NaisApp)
+class NaisAppToTeamEnvironmentRel(CartographyRelSchema):
+    target_node_label: str = "NaisTeamEnvironment"
     target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
-        {"name": PropertyRef("team_slug")},
+        {"id": PropertyRef("team_environment_id")},
+    )
+    direction: LinkDirection = LinkDirection.INWARD
+    rel_label: str = "HAS_APP"
+    properties: NaisRelProperties = NaisRelProperties()
+
+
+@dataclass(frozen=True)
+# (:NaisApp)-[:MANAGES]->(:KubernetesDeployment)
+class NaisAppToKubernetesDeploymentRel(CartographyRelSchema):
+    target_node_label: str = "KubernetesDeployment"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {
+            "cluster_name": PropertyRef("environment"),
+            "namespace": PropertyRef("team_slug"),
+            "name": PropertyRef("k8s_deployment_name"),
+        },
     )
     direction: LinkDirection = LinkDirection.OUTWARD
-    rel_label: str = "RUNS_IN"
-    properties: NaisAppToKubernetesNamespaceRelProperties = (
-        NaisAppToKubernetesNamespaceRelProperties()
+    rel_label: str = "MANAGES"
+    properties: NaisRelProperties = NaisRelProperties()
+
+
+@dataclass(frozen=True)
+# (:NaisApp)-[:MANAGES]->(:KubernetesCronJob)
+class NaisAppToKubernetesCronJobRel(CartographyRelSchema):
+    target_node_label: str = "KubernetesCronJob"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {
+            "cluster_name": PropertyRef("environment"),
+            "namespace": PropertyRef("team_slug"),
+            "name": PropertyRef("k8s_cronjob_name"),
+        },
     )
+    direction: LinkDirection = LinkDirection.OUTWARD
+    rel_label: str = "MANAGES"
+    properties: NaisRelProperties = NaisRelProperties()
 
 
 @dataclass(frozen=True)
 class NaisAppSchema(CartographyNodeSchema):
     label: str = "NaisApp"
     properties: NaisAppNodeProperties = NaisAppNodeProperties()
-    sub_resource_relationship: NaisAppToTenantRel = NaisAppToTenantRel()
+    sub_resource_relationship: NaisTenantRel = NaisTenantRel()
     other_relationships: OtherRelationships = OtherRelationships(
         [
             NaisAppToTeamRel(),
-            NaisAppToKubernetesNamespaceRel(),
+            NaisAppToTeamEnvironmentRel(),
+            NaisAppToKubernetesDeploymentRel(),
+            NaisAppToKubernetesCronJobRel(),
         ]
     )
 
 
 # ---------------------------------------------------------------------------
-# NaisDeployment  (the GitHub→NAIS event link)
+# NaisDeployment: a deploy event (repository, commit, actor and result)
 # ---------------------------------------------------------------------------
 
 
@@ -115,34 +125,11 @@ class NaisDeploymentNodeProperties(CartographyNodeProperties):
     environment_name: PropertyRef = PropertyRef("environment_name")
     repository: PropertyRef = PropertyRef("repository", extra_index=True)
     deployer_username: PropertyRef = PropertyRef("deployer_username")
-    commit_sha: PropertyRef = PropertyRef("commit_sha")
+    commit_sha: PropertyRef = PropertyRef("commit_sha", extra_index=True)
     trigger_url: PropertyRef = PropertyRef("trigger_url")
     latest_status: PropertyRef = PropertyRef("latest_status")
-    is_active: PropertyRef = PropertyRef("is_active")
-
-
-@dataclass(frozen=True)
-class NaisDeploymentToTenantRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
-
-
-@dataclass(frozen=True)
-# (:NaisDeployment)<-[:RESOURCE]-(:NaisTenant)
-class NaisDeploymentToTenantRel(CartographyRelSchema):
-    target_node_label: str = "NaisTenant"
-    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
-        {"id": PropertyRef("NAIS_TENANT_ID", set_in_kwargs=True)},
-    )
-    direction: LinkDirection = LinkDirection.INWARD
-    rel_label: str = "RESOURCE"
-    properties: NaisDeploymentToTenantRelProperties = (
-        NaisDeploymentToTenantRelProperties()
-    )
-
-
-@dataclass(frozen=True)
-class NaisDeploymentToTeamRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
+    latest_status_at: PropertyRef = PropertyRef("latest_status_at")
+    resources: PropertyRef = PropertyRef("resources")
 
 
 @dataclass(frozen=True)
@@ -154,34 +141,11 @@ class NaisDeploymentToTeamRel(CartographyRelSchema):
     )
     direction: LinkDirection = LinkDirection.INWARD
     rel_label: str = "HAS_DEPLOYMENT"
-    properties: NaisDeploymentToTeamRelProperties = NaisDeploymentToTeamRelProperties()
-
-
-@dataclass(frozen=True)
-class NaisDeploymentToAppRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
-
-
-@dataclass(frozen=True)
-# (:NaisApp)-[:HAS_DEPLOYMENT]->(:NaisDeployment)
-class NaisDeploymentToAppRel(CartographyRelSchema):
-    target_node_label: str = "NaisApp"
-    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
-        {"id": PropertyRef("app_id")},
-    )
-    direction: LinkDirection = LinkDirection.INWARD
-    rel_label: str = "HAS_DEPLOYMENT"
-    properties: NaisDeploymentToAppRelProperties = NaisDeploymentToAppRelProperties()
-
-
-@dataclass(frozen=True)
-class NaisDeploymentToGitHubRepoRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
+    properties: NaisRelProperties = NaisRelProperties()
 
 
 @dataclass(frozen=True)
 # (:NaisDeployment)-[:DEPLOYED_FROM]->(:GitHubRepository)
-# Matched via deployment.repository_url = "https://github.com/navikt/my-app" against GitHubRepository.id
 class NaisDeploymentToGitHubRepoRel(CartographyRelSchema):
     target_node_label: str = "GitHubRepository"
     target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
@@ -189,45 +153,57 @@ class NaisDeploymentToGitHubRepoRel(CartographyRelSchema):
     )
     direction: LinkDirection = LinkDirection.OUTWARD
     rel_label: str = "DEPLOYED_FROM"
-    properties: NaisDeploymentToGitHubRepoRelProperties = (
-        NaisDeploymentToGitHubRepoRelProperties()
-    )
+    properties: NaisRelProperties = NaisRelProperties()
 
 
 @dataclass(frozen=True)
 class NaisDeploymentSchema(CartographyNodeSchema):
     label: str = "NaisDeployment"
     properties: NaisDeploymentNodeProperties = NaisDeploymentNodeProperties()
-    sub_resource_relationship: NaisDeploymentToTenantRel = NaisDeploymentToTenantRel()
+    sub_resource_relationship: NaisTenantRel = NaisTenantRel()
     other_relationships: OtherRelationships = OtherRelationships(
         [
             NaisDeploymentToTeamRel(),
-            NaisDeploymentToAppRel(),
             NaisDeploymentToGitHubRepoRel(),
         ]
     )
 
 
-# ---------------------------------------------------------------------------
-# NaisDeploymentToGitHubUserRel (MatchLink)
-# Links NaisDeployment to the GitHubUser who triggered it via deployerUsername.
-# Silently skips if the GitHubUser node does not exist (bot accounts, external
-# contributors not in the GitHub org, or GitHub module not yet synced).
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
-class NaisDeploymentToGitHubUserRelProperties(CartographyRelProperties):
-    lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
-    _sub_resource_label: PropertyRef = PropertyRef(
-        "_sub_resource_label", set_in_kwargs=True
+# (:NaisApp)-[:HAS_DEPLOYMENT]->(:NaisDeployment), from the deployment's applied resources
+class NaisAppToDeploymentMatchLink(CartographyRelSchema):
+    target_node_label: str = "NaisDeployment"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {"id": PropertyRef("deployment_id")},
     )
-    _sub_resource_id: PropertyRef = PropertyRef("_sub_resource_id", set_in_kwargs=True)
+    source_node_label: str = "NaisApp"
+    source_node_matcher: SourceNodeMatcher = make_source_node_matcher(
+        {"id": PropertyRef("app_id")},
+    )
+    direction: LinkDirection = LinkDirection.OUTWARD
+    rel_label: str = "HAS_DEPLOYMENT"
+    properties: NaisMatchLinkRelProperties = NaisMatchLinkRelProperties()
 
 
 @dataclass(frozen=True)
-# (:GitHubUser)-[:TRIGGERED_BY]->(:NaisDeployment)
-# Matched via GitHubUser.username == NaisDeployment.deployer_username
+# (:NaisApp)-[:ACTIVE_DEPLOYMENT]->(:NaisDeployment): newest successful deployment
+class NaisAppToActiveDeploymentMatchLink(CartographyRelSchema):
+    target_node_label: str = "NaisDeployment"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {"id": PropertyRef("deployment_id")},
+    )
+    source_node_label: str = "NaisApp"
+    source_node_matcher: SourceNodeMatcher = make_source_node_matcher(
+        {"id": PropertyRef("app_id")},
+    )
+    direction: LinkDirection = LinkDirection.OUTWARD
+    rel_label: str = "ACTIVE_DEPLOYMENT"
+    properties: NaisMatchLinkRelProperties = NaisMatchLinkRelProperties()
+
+
+@dataclass(frozen=True)
+# (:GitHubUser)-[:TRIGGERED_BY]->(:NaisDeployment), matched on GitHub username.
+# Skipped when the user is unknown (bots, outside collaborators, GitHub not synced).
 class NaisDeploymentToGitHubUserRel(CartographyRelSchema):
     target_node_label: str = "NaisDeployment"
     target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
@@ -239,6 +215,4 @@ class NaisDeploymentToGitHubUserRel(CartographyRelSchema):
     )
     direction: LinkDirection = LinkDirection.OUTWARD
     rel_label: str = "TRIGGERED_BY"
-    properties: NaisDeploymentToGitHubUserRelProperties = (
-        NaisDeploymentToGitHubUserRelProperties()
-    )
+    properties: NaisMatchLinkRelProperties = NaisMatchLinkRelProperties()

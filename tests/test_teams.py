@@ -1,3 +1,4 @@
+import copy
 from unittest.mock import MagicMock
 
 import cartography_nais.teams
@@ -7,70 +8,109 @@ from tests.util import check_rels
 
 TEST_UPDATE_TAG = 123456789
 TEST_TENANT_ID = "https://console.nav.cloud.nais.io/query"
-COMMON_JOB_PARAMETERS = {
-    "UPDATE_TAG": TEST_UPDATE_TAG,
-    "TENANT_ID": TEST_TENANT_ID,
-    "NAIS_TENANT_ID": TEST_TENANT_ID,
-}
+
+
+def _params(update_tag: int) -> dict:
+    return {
+        "UPDATE_TAG": update_tag,
+        "TENANT_ID": TEST_TENANT_ID,
+        "NAIS_TENANT_ID": TEST_TENANT_ID,
+    }
+
+
+def _sync(neo4j_session, raw, update_tag=TEST_UPDATE_TAG):
+    cartography_nais.teams.sync(
+        neo4j_session,
+        MagicMock(),
+        TEST_TENANT_ID,
+        update_tag,
+        _params(update_tag),
+        _teams_raw=raw,
+    )
 
 
 def test_transform_teams():
-    teams, members = cartography_nais.teams.transform(tests.data.teams.MOCK_TEAMS_RAW)
-    assert len(teams) == 2
-
+    teams, environments, members, memberships = cartography_nais.teams.transform(
+        tests.data.teams.MOCK_TEAMS_RAW
+    )
     alpha = next(t for t in teams if t["slug"] == "team-alpha")
     assert alpha["entra_group_id"] == "entra-group-aaa"
     assert alpha["github_team_slug"] == "team-alpha"
-    assert set(alpha["member_ids"]) == {"user-1", "user-2"}
+    assert {(e["environment"], e["gcp_project_id"]) for e in environments} == {
+        ("prod-gcp", "team-alpha-prod-1234"),
+        ("prod-fss", None),
+    }
+    # Bob is in both teams but is one member.
+    assert {m["normalized_email"] for m in members} == {"alice@nav.no", "bob@nav.no"}
+    assert {(m["team_id"], m["member_id"], m["role"]) for m in memberships} == {
+        ("team-1", "user-1", "OWNER"),
+        ("team-1", "user-2", "MEMBER"),
+        ("team-2", "user-2", "MEMBER"),
+    }
 
-    beta = next(t for t in teams if t["slug"] == "team-beta")
-    assert beta["entra_group_id"] is None
 
-    # Bob appears in both teams — deduplication ensures one member record
-    assert len(members) == 2
-    emails = {m["email"] for m in members}
-    assert emails == {"alice@nav.no", "bob@nav.no"}
+def test_load_teams_links_environments_to_cluster_scoped_namespaces(neo4j_session):
+    # The same namespace name exists in several clusters; only matching clusters link.
+    neo4j_session.run(
+        """
+        UNWIND [
+            {id: 'ns-gcp', cluster: 'prod-gcp'},
+            {id: 'ns-fss', cluster: 'prod-fss'},
+            {id: 'ns-dev', cluster: 'dev-gcp'}
+        ] AS ns
+        CREATE (:KubernetesNamespace {id: ns.id, name: 'team-alpha', cluster_name: ns.cluster})
+        CREATE (:GCPProject {id: 'team-alpha-prod-1234'})
+        """
+    )
+    _sync(neo4j_session, tests.data.teams.MOCK_TEAMS_RAW)
 
-
-def test_load_nais_teams(neo4j_session):
-    """Teams and members are loaded and relationships are created."""
-    client = MagicMock()
-
-    cartography_nais.teams.sync(
+    assert check_rels(
         neo4j_session,
-        client,
-        TEST_TENANT_ID,
-        TEST_UPDATE_TAG,
-        COMMON_JOB_PARAMETERS,
-        _teams_raw=tests.data.teams.MOCK_TEAMS_RAW,
-    )
+        "NaisTeam",
+        "slug",
+        "NaisTeamEnvironment",
+        "environment",
+        "HAS_ENVIRONMENT",
+    ) == {("team-alpha", "prod-gcp"), ("team-alpha", "prod-fss")}
+    assert check_rels(
+        neo4j_session,
+        "NaisTeamEnvironment",
+        "environment",
+        "KubernetesNamespace",
+        "id",
+        "HAS_NAMESPACE",
+    ) == {("prod-gcp", "ns-gcp"), ("prod-fss", "ns-fss")}
+    assert check_rels(
+        neo4j_session,
+        "NaisTeamEnvironment",
+        "environment",
+        "GCPProject",
+        "id",
+        "HAS_GCP_PROJECT",
+    ) == {("prod-gcp", "team-alpha-prod-1234")}
 
-    # Teams exist
-    expected_teams = {("team-1", "team-alpha"), ("team-2", "team-beta")}
-    assert check_nodes(neo4j_session, "NaisTeam", ["id", "slug"]) == expected_teams
 
-    # Members exist and carry the UserAccount label
-    expected_members = {
-        ("user-1", "alice@nav.no"),
-        ("user-2", "bob@nav.no"),
-    }
-    assert check_nodes(neo4j_session, "NaisMember", ["id", "email"]) == expected_members
-
-    # HAS_MEMBER relationships exist
-    expected_rels = {
-        ("team-1", "user-1"),
-        ("team-1", "user-2"),
-        ("team-2", "user-2"),
-    }
-    assert (
-        check_rels(
-            neo4j_session,
-            "NaisTeam",
-            "id",
-            "NaisMember",
-            "id",
-            "HAS_MEMBER",
-            rel_direction_right=True,
+def test_memberships_carry_role_and_stale_memberships_are_removed(neo4j_session):
+    _sync(neo4j_session, tests.data.teams.MOCK_TEAMS_RAW)
+    roles = {
+        (r["team"], r["member"], r["role"])
+        for r in neo4j_session.run(
+            "MATCH (t:NaisTeam)-[r:HAS_MEMBER]->(m:NaisMember) "
+            "RETURN t.id AS team, m.id AS member, r.role AS role"
         )
-        == expected_rels
-    )
+    }
+    assert roles == {
+        ("team-1", "user-1", "OWNER"),
+        ("team-1", "user-2", "MEMBER"),
+        ("team-2", "user-2", "MEMBER"),
+    }
+    assert check_nodes(neo4j_session, "UserAccount", ["id"]) == {("user-1",), ("user-2",)}
+
+    # Bob leaves team-alpha but remains in team-beta.
+    raw = copy.deepcopy(tests.data.teams.MOCK_TEAMS_RAW)
+    raw[0]["members"] = raw[0]["members"][:1]
+    _sync(neo4j_session, raw, TEST_UPDATE_TAG + 1)
+
+    assert check_rels(
+        neo4j_session, "NaisTeam", "id", "NaisMember", "id", "HAS_MEMBER"
+    ) == {("team-1", "user-1"), ("team-2", "user-2")}

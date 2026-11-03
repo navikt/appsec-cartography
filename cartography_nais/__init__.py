@@ -4,6 +4,7 @@ from typing import Any
 
 import neo4j
 
+import cartography_nais.configuration
 import cartography_nais.teams
 import cartography_nais.workloads
 from cartography.client.core.tx import load
@@ -74,19 +75,26 @@ def start_nais_ingestion(
         common_job_parameters,
     )
 
-    # Jobs are executed in dependency order:
-    # 1. active_deployment  — sets ACTIVE_DEPLOYMENT edge (prerequisite for DEPLOYED_BY)
-    # 2. image_link         — tag-based RUNS_IMAGE fallback (runs before digest variant)
-    # 3. image_digest_link  — digest-based RUNS_IMAGE (supplements tag-based match)
-    # 4. gar_link           — RUNS_GAR_IMAGE for GAR images
-    # 5. deployed_by        — KubernetesContainer -[:DEPLOYED_BY]-> NaisDeployment
+    cartography_nais.configuration.sync(
+        neo4j_session,
+        client,
+        tenant_id,
+        config.update_tag,
+        common_job_parameters,
+    )
+
+    # Jobs are executed in dependency order. ACTIVE_DEPLOYMENT is loaded by the
+    # workloads sync.
+    # 1. image_link         — tag-based RUNS_IMAGE fallback (runs before digest variant)
+    # 2. image_digest_link  — digest-based RUNS_IMAGE (supplements tag-based match)
+    # 3. gar_link           — RUNS_GAR_IMAGE for GAR images
+    # 4. deployed_by        — KubernetesContainer -[:DEPLOYED_BY]-> NaisDeployment
     #                         (requires RUNS_IMAGE + ACTIVE_DEPLOYMENT)
-    # 6. built_from_repo    — KubernetesContainer -[:BUILT_FROM]-> GitHubRepository
+    # 5. built_from_repo    — KubernetesContainer -[:BUILT_FROM]-> GitHubRepository
     #                         (requires DEPLOYED_BY + DEPLOYED_FROM)
-    # 7. ownership          — NaisTeam -[:RESPONSIBLE_FOR]-> KubernetesPod
-    #                         (requires RUNS_IMAGE)
+    # 6. ownership          — NaisTeam -[:RESPONSIBLE_FOR]-> KubernetesPod
+    #                         (namespace scoped, plus RUNS_IMAGE)
     _analysis_job_order = [
-        "nais_active_deployment.json",
         "nais_image_link.json",
         "nais_image_digest_link.json",
         "nais_gar_link.json",

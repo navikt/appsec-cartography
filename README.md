@@ -1,62 +1,16 @@
 # appsec-cartography
 
-Repo that builds and deploys [Cartography](https://github.com/cartography-cncf/cartography)
-with our local Nais and GitHub collectors.
+Builds and deploys [Cartography](https://github.com/cartography-cncf/cartography)
+with our local [Nais](cartography_nais) and [GitHub](cartography_github) collectors.
+Upstream modules cover GCP and Kubernetes, and `cartography-link` runs the
+upstream `ontology` stage after all collectors to link data across sources.
 
-## Releases
-
-[Build & deploy Cartography](.github/workflows/build-deploy-cartography.yaml)
-runs on deployment configuration changes on `main`, or manually from Actions.
-GCP, Kubernetes, and Nais use the latest stable upstream release; GitHub uses
-the tested upstream `0.143.0` release with a local collector extension.
-See the workflow matrix for sources and cluster targets,
-[Dockerfile.cartography](Dockerfile.cartography) for the build, and [.nais](.nais)
-for deployment settings.
-
-To roll back, run **Deploy existing Cartography image** on `main` with an image
-reference from a previous run summary. Neo4j is built and deployed separately
-through **Build & deploy Neo4j**.
-
-The local [Nais collector](cartography_nais) runs as `cartography-nais` alongside
-unmodified upstream Cartography. Run `mise install`, then
-`uv sync --locked --extra test` to set up development.
-Use `uv run --locked --extra test pytest` to test (requires Docker),
-and `uv run --locked cartography-nais --help` for collector options.
-
-The local [GitHub collector](cartography_github) runs as `cartography-github`.
-It extracts the incremental and parallel collection from
-`navikt/cartography@github-module` while reusing upstream transforms, models,
-and unaffected ingestion stages. GitHub API fetches run with four workers by
-default; Neo4j writes stay on the ingestion thread.
-
-Incremental sync preserves existing workflow and dependency subgraphs when a
-repository's push timestamp and default branch are unchanged, refreshing
-cleanup timestamps on their nodes and relationships. Secrets, variables, and
-environments are still refreshed for active repositories, and new secrets
-trigger a workflow refetch so secret references are linked. Commit queries skip
-repositories with no push in the lookback window. Bookmarks advance only after
-the whole run succeeds; failed or incomplete dependency and workflow responses
-keep their existing data and remain eligible for retry. Global repository
-cleanup is skipped when a repository listing is incomplete. A first run without
-compatible bookmarks still performs a full collection.
-
-Use `--no-github-incremental-sync` for a full refresh, and
-`--github-parallel-workers N` to change API concurrency. This is a local
-collector, not a patch of the installed upstream modules. GitHub is pinned
-because the extension uses upstream internal helpers; run the tests against
-the selected source before updating the pin.
-
-Scheduled GitHub runs remain paused pending production verification. Run the
-Naisjob manually after deployment to check runtime, completeness warnings,
-and the logged stage durations before restoring its schedule. The previous
-baseline fetch cache is no longer read or written; existing
-`AppsecGitHubFetchCache` nodes are left untouched.
-
-### Kubernetes
-
-The [cluster role and binding](.nais/cartography-clusterrole.yaml) must be applied
-by the platform team. Collector schedules are staggered to avoid concurrent
-database updates.
+- Deploy: [Build & deploy Cartography](.github/workflows/build-deploy-cartography.yaml);
+  roll back with **Deploy existing Cartography image**. Settings are in [.nais](.nais).
+- Kubernetes access: the platform team applies the
+  [cluster role](.nais/cartography-clusterrole.yaml). Never grant `secrets`.
+- Develop: `mise install`, `uv sync --locked --extra test`, then
+  `uv run --locked --extra test pytest` (requires Docker).
 
 ## Contact
 

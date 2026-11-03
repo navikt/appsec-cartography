@@ -8,12 +8,31 @@ rules:
     resources:
       - namespaces
     verbs: ["get", "list"]
+  # Never grant secrets: list exposes values. Secret metadata comes from Nais.
   - apiGroups: [""]
     resources:
       - nodes
       - pods
       - services
       - serviceaccounts
+      - persistentvolumes
+      - persistentvolumeclaims
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["list"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["list"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
     verbs: ["list"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources:
@@ -25,7 +44,9 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources:
       - ingresses
+      - networkpolicies
     verbs: ["list"]
+  # Gateway API is not installed (checked in dev-gcp and dev-fss); upstream skips it when missing.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
