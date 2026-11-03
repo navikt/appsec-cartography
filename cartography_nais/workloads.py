@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 import neo4j
@@ -15,6 +17,8 @@ from cartography_nais.models.workload import NaisDeploymentToGitHubUserRel
 from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
+
+DEPLOYMENTS_PER_WORKLOAD = 10
 
 DEPLOYMENT_FRAGMENT = """
 fragment DeploymentFields on Deployment {
@@ -49,7 +53,7 @@ query GetEnvironments {
 # so they are aliased per type.
 WORKLOADS_QUERY = (
     """
-query GetWorkloads($env: String!, $first: Int!, $cursor: Cursor) {
+query GetWorkloads($env: String!, $deployments: Int!, $first: Int!, $cursor: Cursor) {
   environment(name: $env) {
     workloads(first: $first, after: $cursor) {
       pageInfo { hasNextPage endCursor }
@@ -61,8 +65,7 @@ query GetWorkloads($env: String!, $first: Int!, $cursor: Cursor) {
         team { slug }
         teamEnvironment { id environment { name } }
         image { name tag digest }
-        deployments(first: 20) {
-          pageInfo { hasNextPage endCursor }
+        deployments(first: $deployments) {
           nodes { ...DeploymentFields }
         }
         ... on Application {
@@ -114,29 +117,30 @@ def get_workloads(client: NaisGraphQLClient) -> list[dict[str, Any]]:
         results = client.paginate(
             WORKLOADS_QUERY,
             ["environment", "workloads"],
-            variables={"env": env},
+            variables={"env": env, "deployments": DEPLOYMENTS_PER_WORKLOAD},
             page_size=20,
         )
         for workload in results:
-            # Workload.deployments has no ordering argument, so fetch the full history.
-            deployments = client.complete_connection(
-                workload.get("deployments"),
-                node_id=workload["id"],
-                node_type=workload["__typename"],
-                field="deployments",
-                selection="...DeploymentFields",
-                fragments=DEPLOYMENT_FRAGMENT,
-            )
+            # Retention is unbounded; the API returns the newest deployments first.
             workload["deployments"] = [
-                _complete_deployment(client, d) for d in deployments
+                _complete_deployment(client, d)
+                for d in workload["deployments"]["nodes"]
             ]
         workloads.extend(results)
         logger.info("NAIS workloads: %s has %d workloads", env, len(results))
     return workloads
 
 
+_MISSING_TIMESTAMP = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _timestamp(value: str | None) -> datetime:
+    # Nais timestamps vary in fractional-second precision, so compare parsed values.
+    return datetime.fromisoformat(value) if value else _MISSING_TIMESTAMP
+
+
 def _latest_status(statuses: list[dict]) -> dict:
-    return max(statuses, key=lambda s: s.get("createdAt") or "", default={})
+    return max(statuses, key=lambda s: _timestamp(s.get("createdAt")), default={})
 
 
 def _transform_deployment(raw: dict) -> dict:
@@ -174,7 +178,7 @@ def transform(
     """
     Return (apps, deployments, app_deployment_links, active_deployment_links).
 
-    The active deployment is the newest successful deployment of each workload.
+    The active deployment is the newest successful one among the fetched deployments.
     """
     apps = []
     deployments: dict[str, dict] = {}
@@ -225,7 +229,7 @@ def transform(
     for app in apps:
         app_deployments = sorted(
             deployments_by_app.get(app["id"], []),
-            key=lambda d: d["created_at"] or "",
+            key=lambda d: _timestamp(d["created_at"]),
             reverse=True,
         )
         app["latest_deployment_status"] = (

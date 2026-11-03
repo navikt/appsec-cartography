@@ -41,7 +41,7 @@ def test_transform_teams():
         ("prod-fss", None),
     }
     # Bob is in both teams but is one member.
-    assert {m["normalized_email"] for m in members} == {"alice@nav.no", "bob@nav.no"}
+    assert {m["email"] for m in members} == {"alice@nav.no", "bob@nav.no"}
     assert {(m["team_id"], m["member_id"], m["role"]) for m in memberships} == {
         ("team-1", "user-1", "OWNER"),
         ("team-1", "user-2", "MEMBER"),
@@ -49,7 +49,7 @@ def test_transform_teams():
     }
 
 
-def test_load_teams_links_environments_to_cluster_scoped_namespaces(neo4j_session):
+def test_load_teams_links_namespaces_projects_and_google_users(neo4j_session):
     # The same namespace name exists in several clusters; only matching clusters link.
     neo4j_session.run(
         """
@@ -60,6 +60,7 @@ def test_load_teams_links_environments_to_cluster_scoped_namespaces(neo4j_sessio
         ] AS ns
         CREATE (:KubernetesNamespace {id: ns.id, name: 'team-alpha', cluster_name: ns.cluster})
         CREATE (:GCPProject {id: 'team-alpha-prod-1234'})
+        CREATE (:GoogleWorkspaceUser {id: '100000000000000000001'})
         """
     )
     _sync(neo4j_session, tests.data.teams.MOCK_TEAMS_RAW)
@@ -88,6 +89,9 @@ def test_load_teams_links_environments_to_cluster_scoped_namespaces(neo4j_sessio
         "id",
         "HAS_GCP_PROJECT",
     ) == {("prod-gcp", "team-alpha-prod-1234")}
+    assert check_rels(
+        neo4j_session, "NaisMember", "id", "GoogleWorkspaceUser", "id", "MAPS_TO"
+    ) == {("user-1", "100000000000000000001")}
 
 
 def test_memberships_carry_role_and_stale_memberships_are_removed(neo4j_session):

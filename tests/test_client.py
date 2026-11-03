@@ -117,7 +117,13 @@ def test_complete_connection_fetches_remaining_pages_from_cursor(tmp_path):
 
 @pytest.mark.parametrize(
     "connection",
-    [None, {"nodes": []}, {"nodes": [], "pageInfo": {"hasNextPage": True}}],
+    [
+        None,
+        {"nodes": []},
+        {"nodes": [], "pageInfo": {}},
+        {"nodes": [], "pageInfo": {"hasNextPage": None}},
+        {"nodes": [], "pageInfo": {"hasNextPage": True}},
+    ],
 )
 def test_complete_connection_rejects_invalid_connections(connection):
     client = Mock(spec=NaisGraphQLClient)

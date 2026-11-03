@@ -67,6 +67,26 @@ def test_transform_workloads():
     }
 
 
+def test_transform_compares_timestamps_with_mixed_fractional_precision():
+    workload = copy.deepcopy(tests.data.workloads.MOCK_WORKLOADS_RAW[1])
+    workload["deployments"] = [
+        tests.data.workloads._deployment(
+            "older", "2024-06-03T08:00:00Z", [{"state": "SUCCESS", "createdAt": None}]
+        ),
+        tests.data.workloads._deployment(
+            "newer",
+            "2024-06-03T08:00:00.500Z",
+            [
+                {"state": "SUCCESS", "createdAt": "2024-06-03T08:05:00Z"},
+                {"state": "FAILURE", "createdAt": "2024-06-03T08:05:00.500Z"},
+            ],
+        ),
+    ]
+    apps, deployments, _, active = cartography_nais.workloads.transform([workload])
+    assert apps[0]["latest_deployment_status"] == "FAILURE"
+    assert [a["deployment_id"] for a in active] == ["older"]
+
+
 def test_load_workloads_links_controllers_in_the_same_cluster(neo4j_session):
     neo4j_session.run(
         """

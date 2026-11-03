@@ -177,9 +177,9 @@ class NaisGraphQLClient:
             raise RuntimeError(
                 f"Nais response has invalid pagination for {node_type}.{field}"
             )
-        if page_info.get("hasNextPage") is not True:
+        if page_info.get("hasNextPage") is False:
             return list(nodes)
-        if not page_info.get("endCursor"):
+        if page_info.get("hasNextPage") is not True or not page_info.get("endCursor"):
             raise RuntimeError(
                 f"Nais response has invalid cursor for {node_type}.{field}"
             )

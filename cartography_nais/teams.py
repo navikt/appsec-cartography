@@ -110,14 +110,16 @@ def transform(
             memberships.append(
                 {"team_id": team["id"], "member_id": uid, "role": membership["role"]}
             )
+            # Upstream HAS_ACCOUNT matches User.email exactly, so store it normalized.
+            email = normalize_email_for_matching(user.get("email"))
             members_by_id.setdefault(
                 uid,
                 {
                     "id": uid,
-                    "email": user.get("email"),
-                    "normalized_email": normalize_email_for_matching(user.get("email")),
+                    "email": email,
+                    "normalized_email": email,
                     "name": user.get("name"),
-                    "external_id": user.get("externalID"),
+                    "google_user_id": user.get("externalID"),
                     "is_admin": user.get("isAdmin"),
                 },
             )

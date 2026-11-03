@@ -13,14 +13,17 @@ come from their upstream modules, and the collector links to them.
 - `NaisApp` for each Application and Naisjob, with state, ingresses and auth
   integrations, linked with `MANAGES` to its `KubernetesDeployment` or
   `KubernetesCronJob`. Unscheduled Naisjobs are not linked yet.
-- `NaisDeployment` for each deploy event, with repository, commit, deployer and
-  latest status. `ACTIVE_DEPLOYMENT` points to the newest successful one.
+- `NaisDeployment` for the 10 newest deploy events per workload, with
+  repository, commit, deployer and latest status. Kubernetes has no deploy
+  provenance, so these are kept for traceability. `ACTIVE_DEPLOYMENT` points to
+  the newest successful one.
 - `NaisSecret` and `NaisConfig` with key names, last modifier and the workloads
   that use them. Values are never requested.
 
 `NaisMember` is a `UserAccount` with `email` and `normalized_email`. The nav.no
 address identifies the same person across modules, so the upstream ontology
-links it to `User` once a users source is configured.
+links it to `User` once a users source is configured. Its `google_user_id` (Nais
+`externalID`) links it with `MAPS_TO` to `GoogleWorkspaceUser`.
 
 ## Secrets
 

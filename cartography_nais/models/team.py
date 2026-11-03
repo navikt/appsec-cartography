@@ -192,8 +192,21 @@ class NaisMemberNodeProperties(CartographyNodeProperties):
     email: PropertyRef = PropertyRef("email", extra_index=True)
     normalized_email: PropertyRef = PropertyRef("normalized_email", extra_index=True)
     name: PropertyRef = PropertyRef("name")
-    external_id: PropertyRef = PropertyRef("external_id")
+    # Nais User.externalID is the Google Workspace user ID, not the Entra object ID.
+    google_user_id: PropertyRef = PropertyRef("google_user_id", extra_index=True)
     is_admin: PropertyRef = PropertyRef("is_admin")
+
+
+@dataclass(frozen=True)
+# (:NaisMember)-[:MAPS_TO]->(:GoogleWorkspaceUser)
+class NaisMemberToGoogleWorkspaceUserRel(CartographyRelSchema):
+    target_node_label: str = "GoogleWorkspaceUser"
+    target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
+        {"id": PropertyRef("google_user_id")},
+    )
+    direction: LinkDirection = LinkDirection.OUTWARD
+    rel_label: str = "MAPS_TO"
+    properties: NaisRelProperties = NaisRelProperties()
 
 
 @dataclass(frozen=True)
@@ -201,6 +214,9 @@ class NaisMemberSchema(CartographyNodeSchema):
     label: str = "NaisMember"
     properties: NaisMemberNodeProperties = NaisMemberNodeProperties()
     sub_resource_relationship: NaisTenantRel = NaisTenantRel()
+    other_relationships: OtherRelationships = OtherRelationships(
+        [NaisMemberToGoogleWorkspaceUserRel()]
+    )
     # UserAccount label is used for ontology mapping
     extra_node_labels: ExtraNodeLabels = ExtraNodeLabels(
         [ExtraNodeLabel("UserAccount", "Nais team member account")]
