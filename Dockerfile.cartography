@@ -1,4 +1,4 @@
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.13-dev AS builder
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.15-dev AS builder
 ARG WITH_EXTENSIONS=false
 USER root
 COPY --from=ghcr.io/astral-sh/uv@sha256:87a04222b228501907f487b338ca6fc1514a93369bfce6930eb06c8d576e58a4 /uv /uvx /bin/
@@ -19,7 +19,7 @@ RUN uv export --frozen --no-dev --no-emit-project -o /app/constraints.txt --dire
       done; \
     fi
 
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.13-dev AS production
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.15-dev AS production
 ARG WITH_EXTENSIONS=false
 USER root
 RUN mkdir -p /app && chown 1069:1069 /app
