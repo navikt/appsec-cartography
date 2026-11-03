@@ -63,7 +63,7 @@ def _write_repo_pushedat(
     neo4j_session: neo4j.Session,
     updates: list[dict[str, str]],
 ) -> None:
-    """Persist GitHub's current pushedAt value (not present in the 0.143 schema)."""
+    """Persist GitHub's current pushedAt value (not in the upstream repository query)."""
     if updates:
         run_write_query(
             neo4j_session,
@@ -385,7 +385,7 @@ def _get_repo_data_with_pushedat(
     if "                    pushedAt" not in query:
         if "                    updatedAt\n" not in query:
             raise RuntimeError(
-                "Cartography 0.143 GitHub repository query changed; cannot add pushedAt safely."
+                "Upstream GitHub repository query changed; cannot add pushedAt safely."
             )
         query = query.replace(
             "                    updatedAt\n",

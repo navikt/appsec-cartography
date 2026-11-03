@@ -41,7 +41,7 @@ jobs:
               - {collector: k8s, cluster: prod-fss}
               - {collector: k8s, cluster: prod-gcp}
           - repository: cartography-cncf/cartography
-            source: "0.143.0"
+            source: "0.144.0"
             targets:
               - {collector: github, cluster: prod-gcp}
     uses: ./.github/workflows/release-cartography-source.yaml

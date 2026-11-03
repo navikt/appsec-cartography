@@ -30,10 +30,6 @@ fragment DeploymentFields on Deployment {
   deployerUsername
   commitSha
   triggerUrl
-  resources(first: 20) {
-    pageInfo { hasNextPage endCursor }
-    nodes { kind name }
-  }
   statuses(first: 20) {
     pageInfo { hasNextPage endCursor }
     nodes { state createdAt }
@@ -98,14 +94,13 @@ def get_environments(client: NaisGraphQLClient) -> list[str]:
 
 
 def _complete_deployment(client: NaisGraphQLClient, deployment: dict) -> dict:
-    for field, selection in (("resources", "kind name"), ("statuses", "state createdAt")):
-        deployment[field] = client.complete_connection(
-            deployment.get(field),
-            node_id=deployment["id"],
-            node_type="Deployment",
-            field=field,
-            selection=selection,
-        )
+    deployment["statuses"] = client.complete_connection(
+        deployment.get("statuses"),
+        node_id=deployment["id"],
+        node_type="Deployment",
+        field="statuses",
+        selection="state createdAt",
+    )
     return deployment
 
 
@@ -118,7 +113,7 @@ def get_workloads(client: NaisGraphQLClient) -> list[dict[str, Any]]:
             WORKLOADS_QUERY,
             ["environment", "workloads"],
             variables={"env": env, "deployments": DEPLOYMENTS_PER_WORKLOAD},
-            page_size=20,
+            page_size=50,
         )
         for workload in results:
             # Retention is unbounded; the API returns the newest deployments first.
@@ -158,9 +153,6 @@ def _transform_deployment(raw: dict) -> dict:
         "trigger_url": raw.get("triggerUrl"),
         "latest_status": latest.get("state"),
         "latest_status_at": latest.get("createdAt"),
-        "resources": [
-            f"{r.get('kind')}/{r.get('name')}" for r in raw.get("resources") or []
-        ],
     }
 
 

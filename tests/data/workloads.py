@@ -18,7 +18,6 @@ def _deployment(id, created_at, statuses, repository=None, deployer=None, sha=No
         "deployerUsername": deployer,
         "commitSha": sha,
         "triggerUrl": None,
-        "resources": [],
         "statuses": statuses,
     }
 

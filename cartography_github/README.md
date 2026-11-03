@@ -19,7 +19,7 @@ compatible bookmarks still performs a full collection.
 Use `--no-github-incremental-sync` for a full refresh, and
 `--github-parallel-workers N` to change API concurrency. This is a local
 collector, not a patch of the installed upstream modules. GitHub is pinned to
-upstream `0.143.0` because the extension uses upstream internal helpers; run the
+upstream `0.144.0` because the extension uses upstream internal helpers; run the
 tests against the selected source before updating the pin.
 
 Scheduled GitHub runs remain paused pending production verification. Run the

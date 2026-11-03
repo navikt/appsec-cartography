@@ -129,7 +129,6 @@ class NaisDeploymentNodeProperties(CartographyNodeProperties):
     trigger_url: PropertyRef = PropertyRef("trigger_url")
     latest_status: PropertyRef = PropertyRef("latest_status")
     latest_status_at: PropertyRef = PropertyRef("latest_status_at")
-    resources: PropertyRef = PropertyRef("resources")
 
 
 @dataclass(frozen=True)
@@ -170,7 +169,7 @@ class NaisDeploymentSchema(CartographyNodeSchema):
 
 
 @dataclass(frozen=True)
-# (:NaisApp)-[:HAS_DEPLOYMENT]->(:NaisDeployment), from the deployment's applied resources
+# (:NaisApp)-[:HAS_DEPLOYMENT]->(:NaisDeployment), from the workload's deployment list
 class NaisAppToDeploymentMatchLink(CartographyRelSchema):
     target_node_label: str = "NaisDeployment"
     target_node_matcher: TargetNodeMatcher = make_target_node_matcher(
