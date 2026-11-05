@@ -44,3 +44,6 @@ bin/
 __pycache__/
 .pytest_cache/
 *.egg-info/
+
+# Upstream checkout used for local image builds
+/source/
