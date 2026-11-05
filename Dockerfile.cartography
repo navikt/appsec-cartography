@@ -2,7 +2,7 @@ FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.13-dev AS
 ARG WITH_EXTENSIONS=false
 USER root
 COPY --from=ghcr.io/astral-sh/uv@sha256:87a04222b228501907f487b338ca6fc1514a93369bfce6930eb06c8d576e58a4 /uv /uvx /bin/
-RUN mkdir -p /app && chown 1069:1069 /app
+RUN mkdir -p /app /rootfs/app && chown 1069:1069 /app /rootfs/app
 WORKDIR /app
 ENV HOME=/app
 COPY --chown=1069:1069 source /app/src
@@ -10,24 +10,29 @@ COPY --chown=1069:1069 pyproject.toml LICENSE /app/extension/
 COPY --chown=1069:1069 cartography_nais /app/extension/cartography_nais
 COPY --chown=1069:1069 cartography_github /app/extension/cartography_github
 USER 1069
-RUN uv export --frozen --no-dev --no-emit-project -o /app/constraints.txt --directory /app/src && \
-    uv tool install --with-requirements /app/constraints.txt /app/src && \
+# The neo4j-rust extra swaps in Neo4j's Rust Bolt codec; refuse source builds so a
+# missing wheel fails here instead of needing a Rust toolchain.
+RUN uv export --frozen --no-dev --extra neo4j-rust --no-emit-project -o /app/constraints.txt --directory /app/src && \
+    uv tool install --no-build-package neo4j-rust-ext --with-requirements /app/constraints.txt "/app/src[neo4j-rust]" && \
     if [ "$WITH_EXTENSIONS" = true ]; then \
       uv pip install --python /app/.local/share/uv/tools/cartography/bin/python --no-deps /app/extension && \
       for script in cartography-nais cartography-github; do \
         ln -s "/app/.local/share/uv/tools/cartography/bin/$script" "/app/.local/bin/$script"; \
-      done; \
-    fi
+      done && \
+      /app/.local/bin/cartography-nais --help > /dev/null && /app/.local/bin/cartography-github --help > /dev/null; \
+    fi && \
+    mv /app/.local /rootfs/app/.local
 
-FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.13-dev AS production
-ARG WITH_EXTENSIONS=false
-USER root
-RUN mkdir -p /app && chown 1069:1069 /app
-COPY --from=builder --chown=1069:1069 /app/.local /app/.local
+# The runtime image has no shell, so every instruction below must use exec form.
+FROM europe-north1-docker.pkg.dev/cgr-nav/pull-through/nav.no/python:3.13 AS production
+COPY --from=builder --chown=1069:1069 /rootfs /
 ENV HOME=/app
 ENV PATH="/app/.local/bin:$PATH"
+WORKDIR /app
 USER 1069
-RUN cartography -h && if [ "$WITH_EXTENSIONS" = true ]; then cartography-nais --help && cartography-github --help; fi
+RUN ["cartography", "-h"]
+# `_rust_pack` is private, but it is the only proof the driver loaded the extension.
+RUN ["/app/.local/share/uv/tools/cartography/bin/python", "-c", "from neo4j._codec.packstream.v1 import _rust_pack; assert _rust_pack is not None, 'Rust Bolt codec not loaded'"]
 
 ENTRYPOINT ["cartography"]
 CMD ["-h"]

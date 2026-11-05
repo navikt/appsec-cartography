@@ -55,8 +55,8 @@ jobs:
       - name: Test extensions against selected source
         if: env.WITH_EXTENSIONS == 'true'
         run: |
-          pipx run uv export --quiet --directory source --frozen --no-dev --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
-          pipx run uv run --no-project --python 3.13 --with '.[test]' --with ./source --with-requirements "$RUNNER_TEMP/requirements.txt" pytest -q
+          pipx run uv export --quiet --directory source --frozen --no-dev --extra neo4j-rust --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
+          pipx run uv run --no-project --python 3.13 --with '.[test]' --with './source[neo4j-rust]' --with-requirements "$RUNNER_TEMP/requirements.txt" pytest -q
       - uses: nais/docker-build-push@0e73849f69ff260ee27597553c0a7848ca4e9795
         id: build
         with:
