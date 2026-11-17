@@ -13,11 +13,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Login to Docker Hub
-        uses: docker/login-action@v4.7.0
+        uses: docker/login-action@v4.8.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: nais/docker-build-push@0e73849f69ff260ee27597553c0a7848ca4e9795
+      - uses: nais/docker-build-push@588f76a6f45aeb1e75d5e8417ec6ef6d79b2b39f
         id: docker-push-neo4j
         with:
           team: appsec
