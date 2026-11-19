@@ -1,0 +1,22 @@
+# Image for the ArcadeDB parallel run. Built by .github/workflows/build-deploy-arcadedb.yaml with
+# nais/docker-build-push (like Dockerfile.neo4j), so the image is signed, gets an SBOM and is scanned.
+# Unlike Dockerfile.neo4j this is not a Docker Hardened Image (dhi.io); no DHI ArcadeDB image was found.
+# Pinned: arcadedata/arcadedb:26.11.1, multi-arch index digest read 2026-11-19.
+FROM arcadedata/arcadedb:26.11.1@sha256:22a049898f34f01c256b56a1ba95fb01d32e5e14755d3c4367415c8e55ae5035
+
+USER 0:0
+
+# The image runs as UID 1000. Nais runs pods as UID 1069 (same as Dockerfile.neo4j), so make the install readable.
+RUN chmod -R a+rX /home/arcadedb
+
+# The upstream image enables unauthenticated remote JMX on 9999/9998. Turn it off.
+ENV ARCADEDB_JMX="-Dcom.sun.management.jmxremote=false"
+# Default is -XX:MaxRAMPercentage=75. Set the heap explicitly in the Nais manifest instead.
+ENV ARCADEDB_OPTS_MEMORY=""
+# Everything writable lives on the PVC (/data) or /tmp. The root filesystem stays read-only.
+ENV ARCADEDB_LOG_DIR=/tmp/log \
+    ARCADEDB_PID=/tmp/arcadedb.pid \
+    ARCADEDB_HEAP_DUMP_DIR=/tmp \
+    HOME=/tmp
+
+USER 1069:1069

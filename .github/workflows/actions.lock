@@ -3,11 +3,19 @@
 # Docs: https://gh.io/actions-lockfile
 version: 'v0.0.3'
 workflows:
+    '.github/workflows/build-deploy-arcadedb.yaml':
+        - 'actions/checkout@v7.0.1'
+        - 'docker/login-action@v4.8.0'
+        - 'nais/docker-build-push@v0'
+        - 'nais/setup@v1.0.3'
     '.github/workflows/build-deploy-cartography.yaml': []
     '.github/workflows/build-deploy-neo4j.yaml':
         - 'actions/checkout@v7.0.1'
         - 'docker/login-action@v4.8.0'
-        - 'nais/docker-build-push@588f76a6f45aeb1e75d5e8417ec6ef6d79b2b39f'
+        - 'nais/docker-build-push@v0'
+        - 'nais/setup@v1.0.3'
+    '.github/workflows/deploy-arcadedb-pvc.yaml':
+        - 'actions/checkout@v7.0.1'
         - 'nais/setup@v1.0.3'
     '.github/workflows/deploy-cartography.yaml':
         - 'actions/checkout@v7.0.1'
@@ -17,7 +25,7 @@ workflows:
         - 'nais/setup@v1.0.3'
     '.github/workflows/release-cartography-source.yaml':
         - 'actions/checkout@v7.0.1'
-        - 'nais/docker-build-push@588f76a6f45aeb1e75d5e8417ec6ef6d79b2b39f'
+        - 'nais/docker-build-push@v0'
         - 'nais/setup@v1.0.3'
 dependencies:
     'actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae':
@@ -101,7 +109,7 @@ dependencies:
             - 'aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25'
             - 'oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63'
             - 'sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532'
-    'nais/docker-build-push@588f76a6f45aeb1e75d5e8417ec6ef6d79b2b39f':
+    'nais/docker-build-push@v0':
         ref: 'v0'
         commit: 'sha1-588f76a6f45aeb1e75d5e8417ec6ef6d79b2b39f'
         owner_id: 29488289

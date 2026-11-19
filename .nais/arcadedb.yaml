@@ -1,0 +1,100 @@
+# Single-node ArcadeDB for the parallel run next to Neo4j. Deployed only by the manual
+# workflow .github/workflows/build-deploy-arcadedb.yaml. Mirrors .nais/neo4j.yaml; differences are commented.
+# Plan: docs/research/arcadedb-nais-deploy-plan.md
+# Secret (create with Nais Console or `nais secret`, never commit values):
+#   arcadedb-root   key ROOT_PASSWORD, mounted as a file. Read on first start only (rootPasswordPath).
+apiVersion: nais.io/v1alpha1
+kind: Application
+metadata:
+  name: arcadedb
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  image: "${IMAGE}"
+  port: 2480
+  replicas:
+    min: 1
+    max: 1
+  strategy:
+    type: Recreate
+  # Give the server time to flush and close the database on SIGTERM (Nais default is 30, max 180).
+  terminationGracePeriodSeconds: 90
+  env:
+    # Heap ~4G like Neo4j. ArcadeDB has no separate page cache setting; it uses heap plus OS file cache.
+    - name: ARCADEDB_OPTS_MEMORY
+      value: "-Xms4G -Xmx4G"
+    - name: JAVA_OPTS
+      value: >-
+        -Darcadedb.server.rootPath=/data
+        -Darcadedb.server.rootPasswordPath=/var/run/secrets/arcadedb/ROOT_PASSWORD
+        -Darcadedb.server.mode=production
+        -Darcadedb.server.defaultDatabases=cartography[]
+        -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin,Prometheus:com.arcadedb.metrics.prometheus.PrometheusMetricsPlugin
+        -Darcadedb.bolt.port=7687
+        -Darcadedb.bolt.defaultDatabase=cartography
+        -Darcadedb.serverMetrics.prometheus.requireAuthentication=false
+        -Darcadedb.server.restoreImportAllowLocalUrls=true
+        -Djava.io.tmpdir=/tmp
+  filesFrom:
+    # One PVC as server root: databases/, config/ (users, groups, tokens, backup.json), backups/.
+    - persistentVolumeClaim: arcadedb-data
+      mountPath: /data
+    - secret: arcadedb-root
+      mountPath: /var/run/secrets/arcadedb
+    - emptyDir: {}
+      mountPath: /tmp
+  prometheus:
+    enabled: true
+    path: /prometheus
+    port: "2480"
+  accessPolicy:
+    inbound:
+      rules:
+        # Parallel-run writers only. Placeholder names: match them to the parallel jobs you deploy.
+        # Consumers are added one at a time during switch-over. Admins use port-forward (no rule needed).
+        - application: cartography-github-arcadedb
+        - application: cartography-nais-arcadedb
+        - application: cartography-k8s-arcadedb
+        - application: cartography-gcp-arcadedb
+        - application: cartography-link-arcadedb
+        - application: bolt-proxy-inbound-arcadedb
+  # Unauthenticated endpoints: /api/v1/health = process up (204), /api/v1/ready = databases open (204, else 503).
+  liveness:
+    path: /api/v1/health
+    port: 2480
+    initialDelay: 30
+    periodSeconds: 10
+    failureThreshold: 5
+  readiness:
+    path: /api/v1/ready
+    port: 2480
+    initialDelay: 20
+    periodSeconds: 10
+    failureThreshold: 12
+  resources:
+    requests:
+      memory: 5Gi
+      cpu: 200m
+    limits:
+      memory: 8Gi
+  # No ingress: HTTP API and Studio (Studio is off in production mode) are reached with
+  # `kubectl port-forward deploy/arcadedb 2480` by admins only.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: arcadedb-bolt
+  namespace: appsec
+  labels:
+    app: arcadedb
+    team: appsec
+spec:
+  selector:
+    app: arcadedb
+  ports:
+    - name: bolt
+      port: 7687
+      targetPort: 7687
+      protocol: TCP
+  type: ClusterIP

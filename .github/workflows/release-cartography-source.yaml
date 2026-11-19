@@ -57,7 +57,7 @@ jobs:
         run: |
           pipx run uv export --quiet --directory source --frozen --no-dev --extra neo4j-rust --no-emit-project -o "$RUNNER_TEMP/requirements.txt"
           pipx run uv run --no-project --python 3.13 --with '.[test]' --with './source[neo4j-rust]' --with-requirements "$RUNNER_TEMP/requirements.txt" pytest -q
-      - uses: nais/docker-build-push@588f76a6f45aeb1e75d5e8417ec6ef6d79b2b39f
+      - uses: nais/docker-build-push@v0
         id: build
         with:
           team: appsec

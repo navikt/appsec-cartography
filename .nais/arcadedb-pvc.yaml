@@ -1,0 +1,14 @@
+# Applied only by .github/workflows/deploy-arcadedb-pvc.yaml. Mirrors .nais/neo4j-pvc.yaml. One volume is used as arcadedb.server.rootPath:
+# /data/databases, /data/config (users, groups, API tokens, backup.json) and /data/backups.
+# config/ must be persistent: see https://github.com/ArcadeData/arcadedb/issues/10452
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arcadedb-data
+  namespace: appsec
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard-rwo
+  resources:
+    requests:
+      storage: 20Gi

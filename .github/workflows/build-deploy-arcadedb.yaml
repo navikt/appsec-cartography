@@ -1,0 +1,36 @@
+name: Build & deploy ArcadeDB
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4.8.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: nais/docker-build-push@v0
+        id: docker-push-arcadedb
+        with:
+          team: appsec
+          dockerfile: Dockerfile.arcadedb
+          image_suffix: arcadedb
+      - uses: nais/setup@v1.0.3
+        with:
+          team: appsec
+      - name: Deploy to Nais
+        run: |
+          IMAGE="${IMAGE:?}" envsubst < "$RESOURCE" > "$RUNNER_TEMP/manifest.yaml"
+          nais apply "$RUNNER_TEMP/manifest.yaml" --environment "$CLUSTER" --wait
+        env:
+          CLUSTER: prod-gcp
+          RESOURCE: .nais/arcadedb.yaml
+          IMAGE: ${{ steps.docker-push-arcadedb.outputs.image }}
