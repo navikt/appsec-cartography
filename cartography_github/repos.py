@@ -16,7 +16,13 @@ import requests
 import cartography.intel.github.repos as upstream
 from cartography.client.core.tx import read_list_of_dicts_tx, run_write_query
 from cartography.helpers import backoff_handler
+from cartography.models.github.branch_protection_rules import (
+    GitHubBranchProtectionRuleSchema,
+)
+from cartography.models.github.repos import GITHUB_COLLABORATOR_REL_LABELS
+from cartography.models.github.rulesets import GitHubRulesetSchema
 from cartography.util import retries_with_backoff, run_analysis_job, timeit
+from cartography_github.incremental import touch_skipped_repo_resources
 
 logger = logging.getLogger(__name__)
 
@@ -477,6 +483,7 @@ def _get_privileged_details_parallel(
     api_url: str,
     organization: str,
     parallel_workers: int,
+    excluded_repo_urls: set[str],
 ) -> dict[str, dict[str, Any]]:
     connection, _ = upstream.fetch_all(
         token,
@@ -486,7 +493,11 @@ def _get_privileged_details_parallel(
         "repositories",
         count=50,
     )
-    privileged_repos = [repo for repo in connection.nodes if repo is not None]
+    privileged_repos = [
+        repo
+        for repo in connection.nodes
+        if repo is not None and repo.get("url") not in excluded_repo_urls
+    ]
     rulesets = _get_repo_rulesets_by_url_parallel(
         token, api_url, organization, privileged_repos, parallel_workers
     )
@@ -500,6 +511,58 @@ def _get_privileged_details_parallel(
         for repo in privileged_repos
         if repo.get("url")
     }
+
+
+def _touch_archived_repo_details(
+    neo4j_session: neo4j.Session,
+    repo_urls: set[str],
+    update_tag: int,
+    org_url: str,
+) -> None:
+    if not repo_urls:
+        return
+    for schema in (GitHubBranchProtectionRuleSchema(), GitHubRulesetSchema()):
+        touch_skipped_repo_resources(
+            neo4j_session, repo_urls, schema, update_tag, org_url
+        )
+    run_write_query(
+        neo4j_session,
+        """
+        UNWIND $repo_urls AS repo_url
+        MATCH (:GitHubRepository {id: repo_url})-[:HAS_RULESET]->(:GitHubRuleset)
+              -[contains:CONTAINS_RULE]->(rule:GitHubRulesetRule)
+        SET rule.lastupdated = $update_tag, contains.lastupdated = $update_tag
+        WITH DISTINCT rule
+        MATCH (:GitHubOrganization {id: $org_url})-[res:RESOURCE]->(rule)
+        SET res.lastupdated = $update_tag
+        """,
+        repo_urls=sorted(repo_urls),
+        update_tag=update_tag,
+        org_url=org_url,
+    )
+    run_write_query(
+        neo4j_session,
+        """
+        UNWIND $repo_urls AS repo_url
+        MATCH (:GitHubRepository {id: repo_url})-[req:REQUIRES]->(dependency)
+        WHERE dependency:PythonLibrary OR dependency:GitHubDependency
+        SET dependency.lastupdated = $update_tag, req.lastupdated = $update_tag
+        """,
+        repo_urls=sorted(repo_urls),
+        update_tag=update_tag,
+    )
+    run_write_query(
+        neo4j_session,
+        """
+        UNWIND $repo_urls AS repo_url
+        MATCH (user:GitHubUser)-[collab]->(:GitHubRepository {id: repo_url})
+        WHERE type(collab) IN $collaborator_labels
+        SET user.lastupdated = $update_tag, collab.lastupdated = $update_tag
+        """,
+        repo_urls=sorted(repo_urls),
+        update_tag=update_tag,
+        collaborator_labels=[label for _, _, label in GITHUB_COLLABORATOR_REL_LABELS],
+    )
 
 
 @timeit
@@ -521,16 +584,29 @@ def sync(
         github_api_key, github_url, organization
     )
     repos_complete = all(repo is not None for repo in repos_json)
+    excluded_repo_urls = {
+        repo["url"]
+        for repo in repos_json
+        if repo is not None
+        and incremental_sync
+        and (repo.get("isArchived") or repo.get("isDisabled"))
+    }
+    repos_to_enrich = [
+        repo
+        for repo in repos_json
+        if repo is None or repo["url"] not in excluded_repo_urls
+    ]
 
     privileged_data: dict[str, dict[str, Any]] = {}
     rulesets_cleanup_safe = True
-    if upstream._repos_need_privileged_details(repos_json):
+    if upstream._repos_need_privileged_details(repos_to_enrich):
         try:
             privileged_data = _get_privileged_details_parallel(
                 github_api_key,
                 github_url,
                 organization,
                 parallel_workers,
+                excluded_repo_urls,
             )
         except (requests.exceptions.RequestException, ValueError):
             rulesets_cleanup_safe = False
@@ -542,9 +618,14 @@ def sync(
     repos_json, _, _ = upstream._merge_repos_with_privileged_details(
         repos_json, privileged_data
     )
+    repos_to_enrich = [
+        repo
+        for repo in repos_json
+        if repo is None or repo["url"] not in excluded_repo_urls
+    ]
 
     direct, outside = _get_collaborators(
-        repos_json, organization, github_url, github_api_key, parallel_workers
+        repos_to_enrich, organization, github_url, github_api_key, parallel_workers
     )
     dep_manifests_by_url, manifests_cleanup_safe, manifest_bookmarks, complete_urls = (
         _get_dep_manifests_for_repos(
@@ -569,7 +650,16 @@ def sync(
         if repo is not None and repo.get("url") in security_data:
             repo["securityAndAnalysis"] = security_data[repo["url"]]
 
-    repo_data = upstream.transform(repos_json, direct, outside)
+    repo_data = upstream.transform(repos_to_enrich, direct, outside)
+    for repo in repos_json:
+        if repo is not None and repo["url"] in excluded_repo_urls:
+            upstream._transform_repo_objects(repo, repo_data["repos"])
+            upstream._transform_repo_languages(
+                repo["url"], repo, repo_data["repo_languages"]
+            )
+            upstream._transform_repo_owners(
+                repo["owner"]["url"], repo, repo_data["repo_owners"]
+            )
     upstream.enrich_dependencies_with_lockfile_versions(
         repo_data["dependencies"], github_api_key, github_url
     )
@@ -592,6 +682,12 @@ def sync(
         owner_org_id,
     )
     upstream.load(neo4j_session, common_job_parameters, repo_data)
+    _touch_archived_repo_details(
+        neo4j_session,
+        excluded_repo_urls,
+        common_job_parameters["UPDATE_TAG"],
+        owner_org_id,
+    )
 
     pushedat_updates = [
         {
@@ -660,7 +756,11 @@ def sync(
         manifests=repo_data["manifests"],
         manifests_cleanup_safe=manifests_cleanup_safe and repos_complete,
         raw_repos=[repo for repo in repos_json if repo is not None],
-        repo_pushedat_updates=pushedat_updates,
+        repo_pushedat_updates=[
+            update
+            for update in pushedat_updates
+            if update["repo_url"] not in excluded_repo_urls
+        ],
         manifest_bookmark_updates=manifest_bookmarks,
         repos_complete=repos_complete,
     )

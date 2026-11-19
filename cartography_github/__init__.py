@@ -10,23 +10,23 @@ import neo4j
 from cartography.config import Config
 from cartography.intel.github import app_installations
 from cartography.intel.github import cleanup_unscoped_github_resources
-from cartography.intel.github import codeowners
 from cartography.intel.github import container_image_attestations
 from cartography.intel.github import container_image_tags
 from cartography.intel.github import container_images
-from cartography.intel.github import dependabot_alerts
 from cartography.intel.github import external_identities
 from cartography.intel.github import organizations
 from cartography.intel.github import packages
 from cartography.intel.github import personal_access_tokens
-from cartography.intel.github import supply_chain
 from cartography.intel.github import teams
 from cartography.intel.github import users
-from cartography.intel.github import webhooks
 from cartography.intel.github.app_auth import make_credential
 from cartography_github import actions
+from cartography_github import codeowners
 from cartography_github import commits
+from cartography_github import dependabot_alerts
 from cartography_github import repos
+from cartography_github import supply_chain
+from cartography_github import webhooks
 from cartography_github.auth import LockedCredential
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,15 @@ def start_github_ingestion(
                 parallel_workers=parallel_workers,
                 incremental_sync=incremental_sync,
             )
+        excluded_repo_urls = (
+            {
+                repo["id"]
+                for repo in repo_result.repos
+                if repo.get("archived") or repo.get("disabled")
+            }
+            if incremental_sync
+            else None
+        )
         personal_access_tokens.sync(
             neo4j_session, job_parameters, token, api_url, org_name
         )
@@ -121,9 +130,15 @@ def start_github_ingestion(
             org_name,
             repo_result.repos,
             repos_complete=repo_result.repos_complete,
+            excluded_repo_urls=excluded_repo_urls,
         )
         dependabot_alerts.sync(
-            neo4j_session, job_parameters, token, api_url, org_name
+            neo4j_session,
+            job_parameters,
+            token,
+            api_url,
+            org_name,
+            excluded_repo_urls=excluded_repo_urls,
         )
         github_teams = teams.sync_github_teams(
             neo4j_session, job_parameters, token, api_url, org_name
@@ -139,6 +154,7 @@ def start_github_ingestion(
             dependency_manifests_cleanup_safe=repo_result.manifests_cleanup_safe,
             github_users=github_users,
             github_teams=github_teams,
+            excluded_repo_urls=excluded_repo_urls,
         )
         with _timed_stage("actions", org_name):
             actions_result = actions.sync(
@@ -219,6 +235,7 @@ def start_github_ingestion(
                     job_parameters,
                     repo_result.raw_repos,
                     workflows=actions_result.workflows,
+                    excluded_repo_urls=excluded_repo_urls,
                 )
 
         all_repos_complete = all_repos_complete and repo_result.repos_complete

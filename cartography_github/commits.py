@@ -9,7 +9,7 @@ from typing import Any
 import neo4j
 
 import cartography.intel.github.commits as upstream
-from cartography.client.core.tx import read_list_of_dicts_tx
+from cartography.client.core.tx import read_list_of_dicts_tx, run_write_query
 from cartography.util import timeit
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ def sync_github_commits(
     skip_stale_repos: bool = False,
 ) -> None:
     """Fetch commits only for recently pushed repos, then run upstream cleanup."""
+    skipped_urls: list[str] = []
     if skip_stale_repos:
         lookback_date = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         pushedat_by_repo = _get_repo_pushedat_map(
@@ -97,6 +98,12 @@ def sync_github_commits(
             organization,
             lookback_days,
         )
+        eligible_names = set(eligible)
+        skipped_urls = [
+            f"https://github.com/{organization}/{name}"
+            for name in repo_names
+            if name not in eligible_names
+        ]
         repo_names = eligible
 
     upstream.process_repo_commits_batch(
@@ -109,6 +116,20 @@ def sync_github_commits(
         lookback_days=lookback_days,
         batch_size=10,
     )
+    if skip_stale_repos:
+        run_write_query(
+            neo4j_session,
+            """
+            MATCH (org:GitHubOrganization {id: $org_url})<-[:OWNER]-(repo:GitHubRepository)
+            WHERE repo.id IN $repo_urls OR repo.archived = true OR repo.disabled = true
+            MATCH (:GitHubUser)-[rel:COMMITTED_TO]->(repo)
+            WHERE rel._sub_resource_id = $org_url
+            SET rel.lastupdated = $update_tag
+            """,
+            repo_urls=skipped_urls,
+            org_url=f"https://github.com/{organization}",
+            update_tag=update_tag,
+        )
     upstream.cleanup_github_commit_relationships(
         neo4j_session, organization, update_tag
     )

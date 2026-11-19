@@ -3,6 +3,7 @@ import threading
 from types import SimpleNamespace
 
 import requests
+import pytest
 
 import cartography.intel.github.actions as upstream_actions
 import cartography.intel.github.repos as upstream_repos
@@ -384,6 +385,92 @@ def test_repos_sync_partial_fetch_and_listing_preserve_bookmarks_and_subgraphs(
     assert {thread_id for _, _, thread_id in writes} == {caller_thread}
 
 
+@pytest.mark.parametrize("incremental", [True, False])
+def test_repos_sync_only_enriches_live_repos_but_keeps_archived_inventory(
+    monkeypatch,
+    incremental,
+):
+    rows = [
+        {
+            "name": name,
+            "url": f"https://github.com/example/{name}",
+            "isArchived": name == "archived",
+            "isDisabled": name == "disabled",
+            "pushedAt": "2000-01-01T00:00:00Z",
+            "createdAt": "",
+            "updatedAt": "",
+            "nameWithOwner": f"example/{name}",
+            "description": None,
+            "homepageUrl": None,
+            "defaultBranchRef": None,
+            "isPrivate": False,
+            "isLocked": False,
+            "owner": {
+                "url": "https://github.com/example",
+                "login": "example",
+                "__typename": "Organization",
+            },
+            "languages": {"totalCount": 0},
+        }
+        for name in ("inactive", "archived", "disabled")
+    ]
+    session, _, _, _ = _mock_repo_sync_boundary(
+        monkeypatch, rows, parallel_rulesets=True
+    )
+    fetched = {"rulesets": [], "collaborators": []}
+    for stage, name in (
+        ("rulesets", "_fetch_rulesets_for_repo"),
+        ("collaborators", "_fetch_collaborators_for_repo"),
+    ):
+        monkeypatch.setattr(
+            local_repos,
+            name,
+            lambda repo, *args, stage=stage: (
+                fetched[stage].append(repo["name"]) or (repo["url"], [])
+            ),
+        )
+    transformed_names = []
+
+    def transform(repos, *args):
+        transformed_names.extend(repo["name"] for repo in repos)
+        return {
+            "repos": [
+                {"id": repo["url"], "owner_org_id": "https://github.com/example"}
+                for repo in repos
+            ],
+            "repo_languages": [],
+            "repo_owners": [],
+            "dependencies": [],
+            "manifests": [],
+        }
+
+    monkeypatch.setattr(upstream_repos, "transform", transform)
+    monkeypatch.setattr(
+        local_repos,
+        "touch_skipped_repo_resources",
+        lambda *args, **kwargs: None,
+        raising=False,
+    )
+    result = local_repos.sync(
+        session,
+        {"UPDATE_TAG": 29},
+        "token",
+        "api",
+        "example",
+        parallel_workers=2,
+        incremental_sync=incremental,
+    )
+
+    expected = {"inactive"} if incremental else {"inactive", "archived", "disabled"}
+    assert set(fetched["rulesets"]) == expected
+    assert set(fetched["collaborators"]) == expected
+    assert set(transformed_names) == expected
+    assert {repo["id"] for repo in result.repos} == {repo["url"] for repo in rows}
+    assert {update["repo_url"] for update in result.repo_pushedat_updates} == {
+        repo["url"] for repo in rows if repo["name"] in expected
+    }
+
+
 def test_warm_manifest_bookmark_skips_manifest_fetch(monkeypatch):
     repo = {
         "name": "steady",
@@ -607,10 +694,20 @@ def test_commit_sync_filters_stale_repositories_before_upstream_batch(monkeypatc
         "process_repo_commits_batch",
         lambda *args, **kwargs: calls.append((args[4], kwargs)),
     )
+    writes = []
     monkeypatch.setattr(
         upstream_commits,
         "cleanup_github_commit_relationships",
-        lambda *args: None,
+        lambda *args: calls.append("cleanup"),
+    )
+    monkeypatch.setattr(
+        local_commits,
+        "run_write_query",
+        lambda session, query, **params: (
+            writes.append(params),
+            calls.append("preserve"),
+        ),
+        raising=False,
     )
 
     local_commits.sync_github_commits(
@@ -626,6 +723,71 @@ def test_commit_sync_filters_stale_repositories_before_upstream_batch(monkeypatc
 
     assert calls[0][0] == ["recent", "unknown"]
     assert calls[0][1]["batch_size"] == 10
+    assert calls[-1] == "cleanup"
+    assert "preserve" in calls[1:-1]
+    assert writes[0]["repo_urls"] == ["https://github.com/example/old"]
+
+
+def test_commit_sync_preserves_skipped_edges_but_cleans_refreshed_repos(
+    neo4j_session,
+    monkeypatch,
+):
+    org_url = "https://github.com/example"
+    neo4j_session.run(
+        """
+        CREATE (org:GitHubOrganization {id: $org_url})
+        CREATE (user:GitHubUser {id: 'user'})
+        WITH org, user
+        UNWIND ['old', 'archived', 'disabled', 'active'] AS name
+        CREATE (repo:GitHubRepository {
+            id: $org_url + '/' + name, name: name,
+            archived: name = 'archived', disabled: name = 'disabled',
+            pushedat: CASE WHEN name = 'old' THEN '2000-01-01T00:00:00Z' END
+        })-[:OWNER]->(org)
+        CREATE (user)-[:COMMITTED_TO {
+            lastupdated: 1, _sub_resource_label: 'GitHubOrganization',
+            _sub_resource_id: $org_url
+        }]->(repo)
+        """,
+        org_url=org_url,
+    ).consume()
+    monkeypatch.setattr(
+        upstream_commits, "process_repo_commits_batch", lambda *args, **kwargs: None
+    )
+
+    local_commits.sync_github_commits(
+        neo4j_session,
+        "token",
+        "api",
+        "example",
+        ["old", "active"],
+        99,
+        skip_stale_repos=True,
+    )
+
+    rows = neo4j_session.run(
+        "MATCH ()-[rel:COMMITTED_TO]->(repo) RETURN repo.name AS name, rel.lastupdated AS tag"
+    ).data()
+    assert {row["name"]: row["tag"] for row in rows} == {
+        "old": 99,
+        "archived": 99,
+        "disabled": 99,
+    }
+
+    local_commits.sync_github_commits(
+        neo4j_session,
+        "token",
+        "api",
+        "example",
+        ["old", "archived", "disabled", "active"],
+        100,
+    )
+    assert (
+        neo4j_session.run("MATCH ()-[rel:COMMITTED_TO]->() RETURN count(rel)").single()[
+            0
+        ]
+        == 0
+    )
 
 
 def test_touch_skipped_manifests_refreshes_nodes_and_cleanup_relationships(

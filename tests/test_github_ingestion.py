@@ -92,7 +92,10 @@ def test_local_stages_preserve_upstream_scope_and_commit_bookmarks_last(stages):
     ):
         stages[name].assert_called_once()
     stages["container_images.sync_container_images"].assert_not_called()
-    assert stages["webhooks.sync"].call_args.kwargs == {"repos_complete": True}
+    assert stages["webhooks.sync"].call_args.kwargs == {
+        "repos_complete": True,
+        "excluded_repo_urls": set(),
+    }
     assert stages["supply_chain.sync"].call_args.kwargs["workflows"] == [{"id": "workflow"}]
     assert order == ["supply-chain", "cleanup", "manifest-bookmark", "bookmark"]
 
@@ -123,7 +126,10 @@ def test_incomplete_listing_skips_global_repo_cleanup_and_bookmarks(stages):
 
     github.start_github_ingestion(Mock(), config())
 
-    assert stages["webhooks.sync"].call_args.kwargs == {"repos_complete": False}
+    assert stages["webhooks.sync"].call_args.kwargs == {
+        "repos_complete": False,
+        "excluded_repo_urls": set(),
+    }
     stages["bookmark"].assert_not_called()
     stages["cleanup"].assert_not_called()
     stages["users.cleanup"].assert_called_once()
@@ -161,6 +167,38 @@ def test_archived_and_disabled_repositories_are_excluded_from_commit_collection(
     github.start_github_ingestion(Mock(), config())
 
     assert stages["commits.sync_github_commits"].call_args.args[4] == ["app"]
+
+
+@pytest.mark.parametrize("incremental", [True, False])
+def test_archive_exclusions_reach_all_downstream_stages(stages, incremental):
+    archived = "https://github.com/navikt/archived"
+    disabled = "https://github.com/navikt/disabled"
+    stages["repos.sync"].return_value.repos.extend(
+        [
+            {"id": archived, "archived": True},
+            {"id": disabled, "disabled": True},
+        ]
+    )
+
+    github.start_github_ingestion(Mock(), config(), incremental_sync=incremental)
+
+    for stage in (
+        "webhooks.sync",
+        "codeowners.sync",
+        "dependabot_alerts.sync",
+        "supply_chain.sync",
+    ):
+        assert stages[stage].call_args.kwargs["excluded_repo_urls"] == (
+            {archived, disabled} if incremental else None
+        )
+    for stage in (
+        "organizations.sync",
+        "personal_access_tokens.sync",
+        "app_installations.sync",
+        "teams.sync_github_teams",
+        "packages.sync_packages",
+    ):
+        stages[stage].assert_called_once()
 
 
 def test_full_refresh_does_not_write_incremental_bookmarks(stages):
