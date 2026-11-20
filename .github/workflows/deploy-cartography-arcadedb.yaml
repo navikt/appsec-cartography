@@ -1,0 +1,39 @@
+name: Deploy Cartography ArcadeDB jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Parallel-run job to deploy. It runs once when applied.
+        type: choice
+        required: true
+        options: [nais, gcp-k8s]
+      image:
+        description: Cartography image to run. Use the same one as the Neo4j jobs (from the latest release summary).
+        type: string
+        required: true
+
+concurrency:
+  group: cartography-arcadedb
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: nais/setup@v1.0.3
+        with:
+          team: appsec
+      - name: Deploy to Nais
+        run: |
+          IMAGE="${IMAGE:?}" envsubst < "$RESOURCE" > "$RUNNER_TEMP/manifest.yaml"
+          nais apply "$RUNNER_TEMP/manifest.yaml" --environment prod-gcp --wait
+        env:
+          RESOURCE: .nais/arcadedb-cartography-${{ inputs.job }}.yaml
+          IMAGE: ${{ inputs.image }}

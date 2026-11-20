@@ -1,0 +1,83 @@
+# Parallel run: the gcp and kubernetes modules against ArcadeDB in one job, prod-gcp only.
+# Combines .nais/cartography-gcp.yaml and .nais/cartography-k8s.yaml (with vars-k8s-prod-gcp.yaml). Deployed only by
+# .github/workflows/deploy-cartography-arcadedb.yaml. No schedule: the job runs once when applied. Run it again with
+#   nais job trigger cartography-gcp-k8s-arcadedb --team appsec --environment prod-gcp
+#
+# Access this job needs, because it gets its own service accounts:
+# - GCP: the same IAM roles as the Google service account of cartography-gcp.
+# - Kubernetes: the ClusterRoleBinding in .nais/arcadedb-clusterrolebinding.yaml, applied by the platform team.
+# Secret arcadedb-cartography, key ARCADEDB_PASSWORD: password of the ArcadeDB user cartography-writer.
+apiVersion: nais.io/v1
+kind: Naisjob
+metadata:
+  name: cartography-gcp-k8s-arcadedb
+  namespace: appsec
+  labels:
+    team: appsec
+    apiserver-access: enabled
+spec:
+  concurrencyPolicy: Forbid
+  image: "${IMAGE}"
+  backoffLimit: 0
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  command:
+    - cartography
+    - --neo4j-uri
+    - bolt://arcadedb-bolt.appsec.svc.cluster.local
+    - --neo4j-user
+    - cartography-writer
+    - --neo4j-password-env-var
+    - ARCADEDB_PASSWORD
+    - --selected-modules
+    - create-indexes,gcp,kubernetes
+    - --k8s-kubeconfig
+    - /var/run/configmaps/cartography-gcp-k8s-arcadedb-kubeconfig/kubeconfig
+  envFrom:
+    - secret: arcadedb-cartography
+  env:
+    - name: OTEL_LOGS_EXPORTER
+      value: otlp
+  filesFrom:
+    - configmap: cartography-gcp-k8s-arcadedb-kubeconfig
+  accessPolicy:
+    outbound:
+      rules:
+        - application: arcadedb
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 2048Mi
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: python
+---
+# Same as the kubeconfig in .nais/cartography-k8s.yaml. The cluster name ends up in the graph, so it must match
+# the Neo4j job (prod-gcp) for the comparison.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cartography-gcp-k8s-arcadedb-kubeconfig
+  namespace: appsec
+data:
+  kubeconfig: |
+    apiVersion: v1
+    kind: Config
+    clusters:
+      - name: prod-gcp
+        cluster:
+          server: https://kubernetes.default.svc
+          certificate-authority: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    contexts:
+      - name: prod-gcp
+        context:
+          cluster: prod-gcp
+          user: cartography-gcp-k8s-arcadedb
+    current-context: prod-gcp
+    users:
+      - name: cartography-gcp-k8s-arcadedb
+        user:
+          tokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token

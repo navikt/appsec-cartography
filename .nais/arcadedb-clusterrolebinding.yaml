@@ -1,0 +1,14 @@
+# Kubernetes read access for the ArcadeDB parallel-run job in prod-gcp. Applied by the platform team, like
+# .nais/cartography-clusterrole.yaml. Reuses the existing cartography-viewer ClusterRole, so no secrets access.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cartography-gcp-k8s-arcadedb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cartography-viewer
+subjects:
+  - kind: ServiceAccount
+    name: cartography-gcp-k8s-arcadedb
+    namespace: appsec

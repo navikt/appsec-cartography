@@ -1,0 +1,53 @@
+# Parallel run: cartography-nais against ArcadeDB. Same image and arguments as .nais/cartography-nais.yaml,
+# except name, URI, user, secret and outbound rule. Deployed only by .github/workflows/deploy-cartography-arcadedb.yaml.
+# No schedule: the job runs once when applied. Run it again with
+#   nais job trigger cartography-nais-arcadedb --team appsec --environment prod-gcp
+# Secret arcadedb-cartography, key ARCADEDB_PASSWORD: password of the ArcadeDB user cartography-writer.
+apiVersion: nais.io/v1
+kind: Naisjob
+metadata:
+  name: cartography-nais-arcadedb
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  concurrencyPolicy: Forbid
+  image: "${IMAGE}"
+  backoffLimit: 0
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  command:
+    - cartography-nais
+    - --neo4j-uri
+    - bolt://arcadedb-bolt.appsec.svc.cluster.local
+    - --neo4j-user
+    - cartography-writer
+    - --neo4j-password-env-var
+    - ARCADEDB_PASSWORD
+    - --nais-token-path
+    - /var/run/secrets/nais.io/serviceaccount/token
+    - --nais-base-url
+    - https://console.nav.cloud.nais.io/graphql
+  envFrom:
+    - secret: arcadedb-cartography
+  env:
+    - name: OTEL_LOGS_EXPORTER
+      value: otlp
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: http/protobuf
+  accessPolicy:
+    outbound:
+      rules:
+        - application: arcadedb
+      external:
+        - host: console.nav.cloud.nais.io
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 250m
+    limits:
+      memory: 1024Mi
+  observability:
+    autoInstrumentation:
+      enabled: true
+      runtime: python

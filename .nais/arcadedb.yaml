@@ -54,12 +54,11 @@ spec:
   accessPolicy:
     inbound:
       rules:
-        # Parallel-run writers only. Placeholder names: match them to the parallel jobs you deploy.
+        # Parallel-run writers only (.nais/arcadedb-cartography-*.yaml). github and link have no ArcadeDB job yet.
         # Consumers are added one at a time during switch-over. Admins use port-forward (no rule needed).
-        - application: cartography-github-arcadedb
         - application: cartography-nais-arcadedb
-        - application: cartography-k8s-arcadedb
-        - application: cartography-gcp-arcadedb
+        - application: cartography-gcp-k8s-arcadedb
+        - application: cartography-github-arcadedb
         - application: cartography-link-arcadedb
         - application: bolt-proxy-inbound-arcadedb
   # Unauthenticated endpoints: /api/v1/health = process up (204), /api/v1/ready = databases open (204, else 503).
