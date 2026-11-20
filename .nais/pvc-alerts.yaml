@@ -1,0 +1,40 @@
+# Disk usage alerts for the database volumes. Applied only by .github/workflows/deploy-pvc-alerts.yaml.
+# kubelet_volume_stats_* gets one series per node, and a new one when the pod moves, so aggregate with max by PVC.
+# Alerts go to the team Slack channel set in Nais Console.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: appsec-pvc-usage
+  namespace: appsec
+  labels:
+    team: appsec
+spec:
+  groups:
+    - name: appsec-pvc-usage
+      rules:
+        - alert: Neo4jPvcAlmostFull
+          expr: |
+            max by (persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace="appsec", persistentvolumeclaim="neo4j-data"})
+              / max by (persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{namespace="appsec", persistentvolumeclaim="neo4j-data"})
+              > 0.8
+          for: 15m
+          annotations:
+            summary: "Neo4j volume neo4j-data is {{ $value | humanizePercentage }} full"
+            consequence: "Neo4j stops accepting writes when the volume is full, and Cartography syncs fail."
+            action: "Check growth in Grafana (kubelet_volume_stats_used_bytes). Increase storage in .nais/neo4j-pvc.yaml and run 'Bootstrap Neo4j storage'."
+          labels:
+            namespace: appsec
+            severity: warning
+        - alert: ArcadeDbPvcAlmostFull
+          expr: |
+            max by (persistentvolumeclaim) (kubelet_volume_stats_used_bytes{namespace="appsec", persistentvolumeclaim="arcadedb-data"})
+              / max by (persistentvolumeclaim) (kubelet_volume_stats_capacity_bytes{namespace="appsec", persistentvolumeclaim="arcadedb-data"})
+              > 0.8
+          for: 15m
+          annotations:
+            summary: "ArcadeDB volume arcadedb-data is {{ $value | humanizePercentage }} full"
+            consequence: "ArcadeDB stops accepting writes and scheduled backups fail when the volume is full. Backups share this volume."
+            action: "Check backup size with the server command 'list backups cartography'. Lower maxFiles in backup.json, or increase storage in .nais/arcadedb-pvc.yaml and run 'Bootstrap ArcadeDB storage'."
+          labels:
+            namespace: appsec
+            severity: warning

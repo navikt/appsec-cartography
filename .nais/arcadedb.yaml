@@ -42,8 +42,7 @@ spec:
       mountPath: /data
     - secret: arcadedb-root
       mountPath: /var/run/secrets/arcadedb
-    - emptyDir: {}
-      mountPath: /tmp
+    # No /tmp entry: Nais already mounts an emptyDir at /tmp, and a second one fails as a duplicate mountPath.
   prometheus:
     enabled: true
     path: /prometheus
