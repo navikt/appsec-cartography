@@ -21,6 +21,10 @@ spec:
   # Give the server time to flush and close the database on SIGTERM (Nais default is 30, max 180).
   terminationGracePeriodSeconds: 90
   env:
+    # Studio web UI for the PoC setup. Reached only via `kubectl port-forward deploy/arcadedb 2480` (no ingress) and
+    # every query still needs a login. Set to "false" and redeploy when the setup is done. Read at startup only.
+    - name: arcadedb.studio.enabled
+      value: "true"
     # Heap ~4G like Neo4j. ArcadeDB has no separate page cache setting; it uses heap plus OS file cache.
     - name: ARCADEDB_OPTS_MEMORY
       value: "-Xms4G -Xmx4G"
@@ -77,7 +81,7 @@ spec:
       cpu: 200m
     limits:
       memory: 8Gi
-  # No ingress: HTTP API and Studio (Studio is off in production mode) are reached with
+  # No ingress: HTTP API and Studio (toggled by arcadedb.studio.enabled above) are reached with
   # `kubectl port-forward deploy/arcadedb 2480` by admins only.
 ---
 apiVersion: v1
